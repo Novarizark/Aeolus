@@ -35,11 +35,16 @@ yyyymmddhhMM,lat,lon,height,wind_speed,wind_dir,temp,rh,pres,attr1,attr2
 
 * `./lib/obv_constructor.py`: Class template to construct in-situ observation obj
 
+* `./lib/time_manager.py`: Class template to construct time manager obj
+
 #### core 
 `./core/aeolus.py`: Core module, Aeolus interpolator, interpolate in-situ obvs onto wrf mesh
 
 #### utils
 `./utils/utils.py`: Commonly used utilities, such as wind convert funcs, grid locationing, and Haversine formula to calculate great circle distance. 
+
+#### doc
+Documents related to the model.
 
 #### post_process
 Scratch script for visualization.
