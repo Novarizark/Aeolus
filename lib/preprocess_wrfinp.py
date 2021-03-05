@@ -98,14 +98,14 @@ class wrf_mesh:
         self.XLAT_V=wrf.getvar(wrf_hdl,'XLAT_V')
         self.XLONG_V=wrf.getvar(wrf_hdl,'XLONG_V')
         
+        gc.collect()
         # DEPRECATED
+        '''
         if config['CORE']['interp_mode'] == 'accurate':
             print(print_prefix+'Construct layer heights on staggered U/V mesh...')
             self.z_on_u=self.interp_u_stag(self.z)
             self.z_on_v=self.interp_v_stag(self.z)
-        
-        gc.collect()
-
+        '''
     def interp_u_stag(self, var):
         """ DEPRECATED METHOD
         Linear/Nearest interpolate var from mass grid onto staggered U grid 

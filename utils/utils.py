@@ -11,10 +11,26 @@ def wswd2uv(ws, wd):
             'E': 90.0, 'ESE':112.5, 'SE':135.0, 'SSE':157.5,
             'S':180.0, 'SSW':202.5, 'SW':225.0, 'WSW':247.5,
             'W':270.0, 'WNW':292.5, 'NW':315.0, 'NNW':337.5}
-    wd_rad=WD_DIC[wd]*DEG2RAD
+    try: 
+        wd=int(wd)
+        if wd>=0.0 and wd<=360.0:
+            wd_rad=wd*DEG2RAD
+        else:
+            print('2Error in wind direction input!!!'+' wd:'+wd)
+            exit()
+    except ValueError:
+        wd_rad=WD_DIC[wd]*DEG2RAD
+    except:
+        print('1Error in wind direction input!!!'+ ' wd:'+wd)
+        exit()
+
     u=-np.sin(wd_rad)*ws
     v=-np.cos(wd_rad)*ws
     return (u,v)
+
+def wind_speed(u, v):
+    """ calculate wind speed according to U and V """
+    return np.sqrt(u*u+v*v)
 
 def wind_prof(ws0, h0, tgt_h, p):
     """ 

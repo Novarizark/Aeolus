@@ -25,7 +25,7 @@ class model_clock:
         self.interp_len=int(cfg['CORE']['interp_t_length'])*60
         self.interp_interval=int(cfg['CORE']['interp_interval'])
         self.end_time=self.init_time+datetime.timedelta(minutes=self.interp_len)
-        self.assim_win=int(cfg['CORE']['assim_win'])
+        self.effect_win=int(cfg['CORE']['effect_win'])
         self.done=False
         print(print_prefix+"Model clock initiated at "+self.curr_time.strftime("%Y-%m-%d %H:%M:%S"))    
 
@@ -34,12 +34,8 @@ class model_clock:
         """advance the model clock by time interval"""
         self.curr_time=self.curr_time+datetime.timedelta(minutes=self.interp_interval)
         
-        if self.curr_time < self.end_time:
+        if self.curr_time <= self.end_time:
             print(print_prefix+"Model clock advanced to "+self.curr_time.strftime('%Y-%m-%d %H:%M:%S'))
         else:
-            print(print_prefix+"Model clock finished at "+self.end_time.strftime('%Y-%m-%d %H:%M:%S')) 
+            print(print_prefix+"Model clock finished!"
             self.done=True
-
-    def collect_obv(self, obv_lst):
-        """collect effective obvs within the assimilation window or extrapolating"""
-        return obv_lst

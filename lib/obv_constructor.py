@@ -60,7 +60,7 @@ class obv:
         
         (self.rough_len, self.stab_lvl)=(cfg['CORE']['roughness_length'], cfg['CORE']['stability_level'])
         
-        # get wind profile power law exponent value by leaner search in the dataframe
+        # get wind profile power law exponent value by linear search in the dataframe
         self.set_pvalue(wind_prof_df)
         
         self.get_in_situ_prof(fields_hdl)
@@ -85,7 +85,7 @@ class obv:
         # power law within near surf layer 
         idz=fields_hdl.near_surf_z_idx+1
         self.u_prof[0:idz]=[utils.wind_prof(self.u0, self.z, z, self.prof_pvalue) for z in fields_hdl.z[0:idz].values]
-        self.v_prof[0:idz]=[utils.wind_prof(self.u0, self.z, z, self.prof_pvalue) for z in fields_hdl.z[0:idz].values]
+        self.v_prof[0:idz]=[utils.wind_prof(self.v0, self.z, z, self.prof_pvalue) for z in fields_hdl.z[0:idz].values]
         
         # Ekman layer, interpolate to geostrophic wind
         idz2=fields_hdl.geo_z_idx+1
