@@ -71,6 +71,13 @@ class wrf_mesh:
         self.U = wrf.getvar(wrf_hdl, 'U')
         self.V = wrf.getvar(wrf_hdl, 'V')
         self.W = wrf.getvar(wrf_hdl, 'W')
+        
+        # template UV10 and T2
+        self.U10 = wrf.getvar(wrf_hdl, 'U10')
+        self.V10 = wrf.getvar(wrf_hdl, 'V10')
+        self.T2 = wrf.getvar(wrf_hdl, 'T2')
+        
+
 
         z3d=wrf.getvar(wrf_hdl,'z') # model layer elevation above sea level
         self.dnw=wrf.getvar(wrf_hdl,'DNW') # d_eta value on model layer

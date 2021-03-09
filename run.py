@@ -9,10 +9,13 @@ This is the main script to drive the model
 Revision:
 Feb 19, 2021 --- MVP v0.01 completed
 Feb 24, 2021 --- MVP v0.02 Unit test finished
-Mar 10, 2021 --- MVP v0.10 Unit test finished
+Mar 05, 2021 --- MVP v0.03 New version 
     --- Adevection Distance Adjustement
     --- Wind 16 directions and degree directions
     --- Interpolation of Nearest 3 stations.
+Mar 08, 2021 --- MVP v0.04 New version
+    --- Observation Examiner
+    --- U10 V10 T2 bug fix
 
 Zhenning LI
 '''
@@ -36,8 +39,11 @@ def main_run():
     
     print('Read Input Observations...')
     obv_df=pd.read_csv(cfg_hdl['INPUT']['input_root']+cfg_hdl['INPUT']['input_obv'])
-    # make sure the list is sorted by datetime
+    # make sure the list is sorted by datetime and long enough
     obv_df=obv_df.sort_values(by='yyyymmddhhMM') 
+    
+    print('Input Quality Control...')
+    lib.obv_constructor.obv_examiner(obv_df)
     
     print('Read Wind Profile Exponents...')
     wind_prof_df=pd.read_csv('./db/power_coef_wind.csv')
@@ -48,7 +54,10 @@ def main_run():
     fields_hdl=lib.preprocess_wrfinp.wrf_mesh(cfg_hdl)
     
     print('Construct Observation Satation Objs...')
-   
+    obv_lst=[] 
+    for row in obv_df.itertuples():
+        obv_lst.append(lib.obv_constructor.obv(row, wind_prof_df, cfg_hdl, fields_hdl))
+
     print('Construct Model Clock...')
     clock=lib.model_clock.model_clock(cfg_hdl)
 
@@ -59,15 +68,13 @@ def main_run():
 
     print('Aeolus Interpolating Estimator Casting...')
     while not(clock.done):
-        # Memory Refresh BUG: Required to reconstruct obv_lst in each clock period
-        obv_lst=[] 
-        for row in obv_df.itertuples():
-            obv_lst.append(lib.obv_constructor.obv(row, wind_prof_df, cfg_hdl, fields_hdl))
-    
+       
         estimator.cast(obv_lst,fields_hdl, clock)
+        time_mgr.toc('CAST MODULE', loop_flag=True)
 
         print('Output Diagnostic UVW Fields...')
         core.aeolus.output_fields(cfg_hdl, estimator, clock)
+        time_mgr.toc('OUTPUT MODULE', loop_flag=True)
         
         clock.advance()
 

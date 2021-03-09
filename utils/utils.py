@@ -1,9 +1,28 @@
 #/usr/bin/env python
-"""Commonly used utilities"""
+"""Commonly used utilities
 
+    Function    
+    ---------------
+    obv_examiner(obv_df):
+        Examine the input observational data
+    
+    throw_error(source, msg):
+        Throw error with call source and error message
+
+"""
 import numpy as np
 
 DEG2RAD=np.pi/180.0
+
+def throw_error(source, msg):
+    """ Throw error with call source and error message"""
+    print('\n--------------AEOLUOS RUNTIME ERROR!!!-------------\n')
+    print('Error catched with message below:')
+    print(source+msg)
+    print('Aeolus exits abnormally!')
+    print('\n-------------AEOLUOS ABNORMAL ABORTION-------------')
+    exit()
+
 
 def wswd2uv(ws, wd):
     """ convert wind component to UV """
@@ -11,21 +30,29 @@ def wswd2uv(ws, wd):
             'E': 90.0, 'ESE':112.5, 'SE':135.0, 'SSE':157.5,
             'S':180.0, 'SSW':202.5, 'SW':225.0, 'WSW':247.5,
             'W':270.0, 'WNW':292.5, 'NW':315.0, 'NNW':337.5}
+    
+    # below test valid wind direction input
+    wd_error=False
     try: 
-        wd=int(wd)
-        if wd>=0.0 and wd<=360.0:
-            wd_rad=wd*DEG2RAD
+        wd_int=int(wd)
+        if wd_int>=0.0 and wd_int<=360.0:
+            wd_rad=wd_int*DEG2RAD
         else:
-            print('2Error in wind direction input!!!'+' wd:'+wd)
-            exit()
+            wd_error=True
     except ValueError:
-        wd_rad=WD_DIC[wd]*DEG2RAD
-    except:
-        print('1Error in wind direction input!!!'+ ' wd:'+wd)
-        exit()
+        try:
+            wd_rad=WD_DIC[wd]*DEG2RAD
+        except KeyError:
+            wd_error=True
+    
+    
+    if wd_error:
+        throw_error('utils.wswd2uv>>','Invalid wind direction input!\n'
+                +'with record: wind_dir='+wd)
 
     u=-np.sin(wd_rad)*ws
     v=-np.cos(wd_rad)*ws
+
     return (u,v)
 
 def wind_speed(u, v):

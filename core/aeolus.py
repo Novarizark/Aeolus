@@ -48,7 +48,12 @@ class aeolus:
         self.U=fields_hdl.U
         self.V=fields_hdl.V
         self.W=fields_hdl.W
-   
+        
+        self.U10=fields_hdl.U10
+        self.V10=fields_hdl.V10
+        self.T2=fields_hdl.T2
+        
+
     def cast(self, obv_lst, fields_hdl, clock):
         """ cast interpolation on WRF mesh """
         print(print_prefix+'Interpolate UV...')
@@ -61,19 +66,25 @@ class aeolus:
         # construct distance matrix on staggered v grid
         self.dis_mtx_v=np.zeros((fields_hdl.n_sn+1, fields_hdl.n_we, n_obv))
         
+        # construct distance matrix on mass grid
+        self.dis_mtx=np.zeros((fields_hdl.n_sn, fields_hdl.n_we, n_obv))
+
         for idx, obv in enumerate(cast_lst):
             # advection distance (km) adjustment according to delta t
             adv_dis=abs((obv.t-clock.curr_time).total_seconds())*utils.wind_speed(obv.u0, obv.v0)/1000.0
             self.dis_mtx_u[:,:,idx]=adv_dis+utils.great_cir_dis_2d(obv.lat, obv.lon, fields_hdl.XLAT_U, fields_hdl.XLONG_U)
             self.dis_mtx_v[:,:,idx]=adv_dis+utils.great_cir_dis_2d(obv.lat, obv.lon, fields_hdl.XLAT_V, fields_hdl.XLONG_V)
+            self.dis_mtx[:,:,idx]=adv_dis+utils.great_cir_dis_2d(obv.lat, obv.lon, fields_hdl.XLAT, fields_hdl.XLONG)
         
         usort_idx=np.argsort(self.dis_mtx_u)
         vsort_idx=np.argsort(self.dis_mtx_v)
+        msort_idx=np.argsort(self.dis_mtx)
 
         # sorted distance matrix and take the nearest 3 to construct the calculating matrix
         dis_mtx_u_near=np.take_along_axis(self.dis_mtx_u, usort_idx, axis=-1)[:,:,0:3]
         dis_mtx_v_near=np.take_along_axis(self.dis_mtx_v, vsort_idx, axis=-1)[:,:,0:3]
-       
+        dis_mtx_near=np.take_along_axis(self.dis_mtx, msort_idx, axis=-1)[:,:,0:3]
+
         # get uv profile (n_obv, nlvl)
         u_profs=np.asarray([obv.u_prof for obv in cast_lst])
         v_profs=np.asarray([obv.v_prof for obv in cast_lst])
@@ -83,7 +94,7 @@ class aeolus:
         u_prof_mtx=np.broadcast_to(u_profs, (fields_hdl.n_sn, fields_hdl.n_we+1, n_obv, nz))
         v_prof_mtx=np.broadcast_to(v_profs, (fields_hdl.n_sn+1, fields_hdl.n_we, n_obv, nz))
         
-        
+        # cast vertical profile interpolation 
         for idz in range(0, nz):
             u_prof_near=np.take_along_axis(u_prof_mtx[:,:,:,idz], usort_idx, axis=-1)[:,:,0:3]
             self.U.values[idz,:,:]=inv_dis_wgt_2d(u_prof_near,dis_mtx_u_near)
@@ -92,6 +103,12 @@ class aeolus:
             v_prof_near=np.take_along_axis(v_prof_mtx[:,:,:,idz], vsort_idx, axis=-1)[:,:,0:3]
             self.V.values[idz,:,:]=inv_dis_wgt_2d(v_prof_near, dis_mtx_v_near)
 
+        # cast 10-m uv/ 2-m temp interpolation
+            self.U10.values=cast_2d([obv.u10 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
+            self.V10.values=cast_2d([obv.v10 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
+            self.T2.values=cast_2d([obv.t2 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
+            
+        
         print(print_prefix+'First-guess W...')
         self.W.values=diag_vert_vel(self, fields_hdl)
         
@@ -101,6 +118,15 @@ class aeolus:
     def adjust_mass(self, fields_hdl):
         """ adjust result according to continuity equation (mass conservation) """
         pass
+
+def cast_2d(var_list, fields_hdl, dis_mtx_near, sort_idx):
+    """ For cast 10-m uv/ 2-m temp """
+    n_obv=len(var_list)
+    var_array=np.asarray(var_list)
+    var_mtx=np.broadcast_to(var_array, (fields_hdl.n_sn, fields_hdl.n_we, n_obv))
+    var_near=np.take_along_axis(var_mtx, sort_idx, axis=-1)[:,:,0:3]
+    return inv_dis_wgt_2d(var_near, dis_mtx_near)
+
 
 def diag_vert_vel(aeolus, fields_hdl):
     """ Diagnose vertical velocity according to divergence in eta coordinate"""
@@ -183,6 +209,11 @@ def output_fields(cfg, aeolus, clock):
     ds['U'].values[0,:,:,:]=aeolus.U.values
     ds['V'].values[0,:,:,:]=aeolus.V.values
     ds['W'].values[0,:,:,:]=aeolus.W.values
+    
+    ds['U10'].values[0,:,:]=aeolus.U10.values
+    ds['V10'].values[0,:,:]=aeolus.V10.values
+    ds['T2'].values[0,:,:]=aeolus.T2.values
+    
     ds.to_netcdf(out_fn, mode='a')
 
 if __name__ == "__main__":

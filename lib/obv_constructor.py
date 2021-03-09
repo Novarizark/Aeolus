@@ -1,5 +1,11 @@
 #/usr/bin/env python3
-"""Build Observation Station Objects"""
+"""
+    Build Observation Station Objects
+
+    Class       
+    ---------------
+                obv
+"""
 
 import datetime
 import pandas as pd 
@@ -10,6 +16,7 @@ import sys
 sys.path.append('../')
 from utils import utils
 
+import copy
 
 print_prefix='lib.obv>>'
 
@@ -57,6 +64,7 @@ class obv:
         self.t=datetime.datetime.strptime(str(df_row.yyyymmddhhMM),'%Y%m%d%H%M')
         
         (self.u0, self.v0)=utils.wswd2uv(df_row.wind_speed, df_row.wind_dir)
+        self.t2=df_row.temp_2m
         
         (self.rough_len, self.stab_lvl)=(cfg['CORE']['roughness_length'], cfg['CORE']['stability_level'])
         
@@ -77,16 +85,21 @@ class obv:
         """ get in-situ wind profile in the observation station """
         
         # get the wind profile from template file
+        # BUG FIX: Need to copy the field var as field will be changed in aeolus.cast
         (idx,idy)=utils.get_closest_idxy(fields_hdl.XLAT_U.values,fields_hdl.XLONG_U.values,self.lat,self.lon)
-        self.u_prof=fields_hdl.U.values[:,idx,idy]
+        self.u_prof=copy.copy(fields_hdl.U.values[:,idx,idy])
         (idx,idy)=utils.get_closest_idxy(fields_hdl.XLAT_V.values,fields_hdl.XLONG_V.values,self.lat,self.lon)
-        self.v_prof=fields_hdl.V.values[:,idx,idy]
+        self.v_prof=copy.copy(fields_hdl.V.values[:,idx,idy])
 
         # power law within near surf layer 
         idz=fields_hdl.near_surf_z_idx+1
         self.u_prof[0:idz]=[utils.wind_prof(self.u0, self.z, z, self.prof_pvalue) for z in fields_hdl.z[0:idz].values]
         self.v_prof[0:idz]=[utils.wind_prof(self.v0, self.z, z, self.prof_pvalue) for z in fields_hdl.z[0:idz].values]
         
+        # record 10-m UV wind
+        self.u10=utils.wind_prof(self.u0, self.z, 10, self.prof_pvalue)
+        self.v10=utils.wind_prof(self.v0, self.z, 10, self.prof_pvalue)
+
         # Ekman layer, interpolate to geostrophic wind
         idz2=fields_hdl.geo_z_idx+1
         
@@ -96,8 +109,22 @@ class obv:
         interp_u=interpolate.interp1d(x_org,u_org)
         interp_v=interpolate.interp1d(x_org,v_org)
 
-        self.u_prof[idz:idz2]=geo_u=interp_u(fields_hdl.z.values[idz:idz2])
-        self.v_prof[idz:idz2]=geo_u=interp_v(fields_hdl.z.values[idz:idz2])
+        self.u_prof[idz:idz2]=interp_u(fields_hdl.z.values[idz:idz2])
+        self.v_prof[idz:idz2]=interp_v(fields_hdl.z.values[idz:idz2])
+
+
+def obv_examiner(obv_df):
+    """ Examine the input observational data """
+    # test the input length
+    if len(obv_df)< 3:
+        utils.throw_error(print_prefix,'At least 3 observational records are needed!')
+    
+    # test the necessary elements
+    na_mtx=obv_df.iloc[:,0:7].isna()
+    if na_mtx.any().any():
+        print(obv_df)
+        utils.throw_error(print_prefix, 'Missing value is not allowed through "yyyymmddhhMM":"temp_2m"!\n'+
+                'please check in the above obv table!')
 
 if __name__ == "__main__":
     pass

@@ -37,5 +37,5 @@ class model_clock:
         if self.curr_time <= self.end_time:
             print(print_prefix+"Model clock advanced to "+self.curr_time.strftime('%Y-%m-%d %H:%M:%S'))
         else:
-            print(print_prefix+"Model clock finished!"
+            print(print_prefix+"Model clock finished!")
             self.done=True

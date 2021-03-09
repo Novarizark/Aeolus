@@ -25,18 +25,25 @@ class time_manager:
         self.tic0=time.time()
         self.tic=self.tic0
         self.record=[]
+        self.loop_times=0
 
-    def toc(self, evt_str):
+    def toc(self, evt_str, loop_flag=False):
         """press toc after each event (evt_str)"""
-        self.record.append((evt_str, time.time()-self.tic))
-        self.tic=time.time()
+        if loop_flag:
+            self.loop_times=self.loop_times+1
+            self.record.append((evt_str,self.loop_times,time.time()-self.tic))
+            self.tic=time.time()
+        else:
+            self.record.append((evt_str,1,time.time()-self.tic))
+            self.tic=time.time()
+
 
     def dump(self):
         """Dump time manager object in output stream"""
-        fmt='%20s:%10.4fs%6.1f%%'
+        fmt='%20s:%10.4fs%6dx%6.1f%%'
         print('\n----------------TIME MANAGER PROFILE----------------\n\n')
         total_t=time.time()-self.tic0
         for rec in self.record:
-            print(fmt % (rec[0],rec[1],100.0*rec[1]/total_t))
-        print(fmt % ('TOTAL ELAPSED TIME', total_t, 100.0))
+            print(fmt % (rec[0],rec[2],rec[1],100.0*rec[2]/total_t))
+        print(fmt % ('TOTAL ELAPSED TIME', total_t, 1, 100.0))
         print('\n----------------TIME MANAGER PROFILE----------------\n\n')
