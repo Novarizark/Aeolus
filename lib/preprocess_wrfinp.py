@@ -62,7 +62,7 @@ class wrf_mesh:
         
         print(print_prefix+'Init wrf_mesh obj...')
         print(print_prefix+'Read template file...')
-        wrf_hdl=nc4.Dataset(config['INPUT']['input_root']+config['INPUT']['input_wrf'])
+        wrf_hdl=nc4.Dataset('./db/'+config['INPUT']['input_wrf'])
         # collect global attr
         self.dx=wrf_hdl.DX
         self.dy=wrf_hdl.DY

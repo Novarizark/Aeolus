@@ -35,8 +35,13 @@ def main_run():
     time_mgr=lib.time_manager.time_manager()
 
     print('Read Config...')
+    cfg_basic_hdl=lib.cfgparser.read_cfg('./conf/config.basic.ini')
     cfg_hdl=lib.cfgparser.read_cfg('./conf/config.ini')
-    
+    cfg_hdl['INPUT']=cfg_basic_hdl['INPUT']
+    cfg_hdl['CORE']['interp_strt_t']=cfg_basic_hdl['CORE']['interp_strt_t']
+    cfg_hdl['CORE']['interp_t_length']=cfg_basic_hdl['CORE']['interp_t_length']
+    cfg_hdl['CORE']['interp_interval']=cfg_basic_hdl['CORE']['interp_interval']
+
     print('Read Input Observations...')
     obv_df=pd.read_csv(cfg_hdl['INPUT']['input_root']+cfg_hdl['INPUT']['input_obv'])
     # make sure the list is sorted by datetime and long enough
@@ -62,23 +67,22 @@ def main_run():
     clock=lib.model_clock.model_clock(cfg_hdl)
 
     print('Construct Interpolating Estimator...')
-    estimator=core.aeolus.aeolus(fields_hdl)
+    estimator=core.aeolus.aeolus(fields_hdl, cfg_hdl)
 
     time_mgr.toc('CONSTRUCTION MODULE')
 
     print('Aeolus Interpolating Estimator Casting...')
     while not(clock.done):
        
-        estimator.cast(obv_lst,fields_hdl, clock)
-        time_mgr.toc('CAST MODULE', loop_flag=True)
+        estimator.cast(obv_lst, fields_hdl, clock)
+        time_mgr.toc('CAST MODULE')
 
         print('Output Diagnostic UVW Fields...')
-        core.aeolus.output_fields(cfg_hdl, estimator, clock)
-        time_mgr.toc('OUTPUT MODULE', loop_flag=True)
+        #core.aeolus.output_fields(cfg_hdl, estimator, clock)
+        time_mgr.toc('OUTPUT MODULE')
         
         clock.advance()
 
-    time_mgr.toc('EXECUTION MODULE')
     
     time_mgr.dump()
 

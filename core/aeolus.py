@@ -18,6 +18,9 @@ import xarray as xr
 import numpy as np
 import copy
 
+from scipy.sparse import lil_matrix
+from scipy.sparse.linalg import spsolve
+
 import sys, os
 sys.path.append('../')
 from utils import utils
@@ -43,7 +46,7 @@ class aeolus:
     adjust_mass(), adjust result according to continuity equation (mass conservation)
     '''
     
-    def __init__(self, fields_hdl):
+    def __init__(self, fields_hdl, cfg_hdl):
         """ construct aeolus interpolator """
         self.U=fields_hdl.U
         self.V=fields_hdl.V
@@ -52,7 +55,10 @@ class aeolus:
         self.U10=fields_hdl.U10
         self.V10=fields_hdl.V10
         self.T2=fields_hdl.T2
-        
+       
+        self.alpha_x=float(cfg_hdl['CORE']['alpha_x'])
+        self.alpha_y=float(cfg_hdl['CORE']['alpha_y'])
+        self.alpha_z=float(cfg_hdl['CORE']['alpha_z'])
 
     def cast(self, obv_lst, fields_hdl, clock):
         """ cast interpolation on WRF mesh """
@@ -110,14 +116,69 @@ class aeolus:
             
         
         print(print_prefix+'First-guess W...')
-        self.W.values=diag_vert_vel(self, fields_hdl)
+        self.W.values,self.zx,self.zy=diag_vert_vel(self, fields_hdl)
         
         print(print_prefix+"Adjust results by mass conservation...")
         self.adjust_mass(fields_hdl)
         
     def adjust_mass(self, fields_hdl):
         """ adjust result according to continuity equation (mass conservation) """
-        pass
+        # prepare variables
+        dx, ter, ztop=fields_hdl.dx,  fields_hdl.ter, fields_hdl.ztop
+        n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
+        n_z=fields_hdl.geo_z_idx+1 # only adjust mass within the boundary layer
+        dnw=fields_hdl.dnw[0:n_z+1] # delt eta value on each layer
+        zx, zy=self.zx, self.zy
+        
+        # first guass u, v, w
+        U0, V0, W0=self.U.values, self.V.values, self.W.values
+        alx, aly, alz=self.alpha_x, self.alpha_y, self.alpha_z
+        
+        #zx xstag to right 
+        zx_xstag_r=np.zeros(U0.shape[1:])
+        zx_xstag_r[:,0:n_we]=zx
+        zx_xstag_r[:,n_we]=zx[:,n_we-1]
+        
+        zy_ystag_u=np.zeros(V0.shape[1:])
+        zy_ystag_u[0:n_sn,:]=zy
+        zy_ystag_u[n_sn,:]=zy[n_sn-1,:]
+
+
+        zx_xstag_l=np.zeros(U0.shape[1:])
+        zx_xstag_l[:,1:]=zx
+        zx_xstag_l[:,0]=zx[:,0]
+        
+        zy_ystag_d=np.zeros(V0.shape[1:])
+        zy_ystag_d[1:,:]=zy
+        zy_ystag_d[0,:]=zy[0,:]
+ 
+
+        # write the terms according to (4.16) in Magnusson.pdf
+        ax2 = 1.0/(alx*alx)
+        ay2 = 1.0/(aly*aly)
+        az2 = 1.0/(alz*alz)
+
+        Bx=ax2*(2+(zx_xstag_r[:,1:]-zx_xstag_r[:,0:n_we])/(2*dx)) # (n_sn, n_we)
+        By=ay2*(2+(zy_ystag_u[1:,:]-zy_ystag_u[0:n_sn,:])/(2*dx)) # (n_sn, n_we)
+        Bz=2*az2/(dnw[1:]*(dnw[0:n_z]+dnw[1:])) # (n_z)
+        
+        O1=-(ax2/(dx*dx)+ay2/(dx*dx)+az2/(dnw[1:]*dnw[0:n_z])) # (n_z)
+        O2=-(ax2*zx*zx+ay2*zy*zy) #(n_sn,n_we)
+        O1_mtx=np.broadcast_to(O1, (n_sn, n_we, n_z))
+        O2_mtx=np.broadcast_to(O2, (n_z, n_sn, n_we))
+        O=np.zeros((n_z,n_sn,n_we)) #(n_sn, n_we, n_z)
+        for iz in range(0,n_z):
+            O[iz,:,:]=O2_mtx[iz,:,:]+O1_mtx[:,:,iz]
+
+        Ax=ax2*(2+(zx_xstag_l[:,1:]-zx_xstag_l[:,0:n_we])/(2*dx)) # (n_sn, n_we)
+        Ay=ay2*(2+(zy_ystag_d[1:,:]-zy_ystag_d[0:n_sn,:])/(2*dx)) # (n_sn, n_we)
+        Bz=2*az2/(dnw[0:n_z]*(dnw[0:n_z]+dnw[1:])) # (n_z)
+
+        # Right terms. Magnusson.pdf (4.17)
+        R=0
+        # all necessary data collected! Let's do the magic!
+        
+
 
 def cast_2d(var_list, fields_hdl, dis_mtx_near, sort_idx):
     """ For cast 10-m uv/ 2-m temp """
@@ -147,14 +208,18 @@ def diag_vert_vel(aeolus, fields_hdl):
     ter_ystag[n_sn,:]=ter[n_sn-1,:]
     
     div=utils.div_2d(U, V, dx, dx)
+    # eta coordinate terrain gradient term, see (4.12a, 4.12b) in Magnusson.pdf
+    zx=(1.0/(ztop-ter))*((ter_xstag[:,1:]-ter_xstag[:,0:n_we])/dx)
+    zy=(1.0/(ztop-ter))*((ter_ystag[1:,:]-ter_ystag[0:n_sn,:])/dx)
 
+    
     # eta coordinate adjustment terms, see (4.9') in Magnusson.pdf
     for ii in range(0,n_z):
-        adj_term1=(1.0/(ztop-ter))*U[ii,:,0:n_we]*((ter_xstag[:,1:]-ter_xstag[:,0:n_we])/dx)
-        adj_term2=(1.0/(ztop-ter))*V[ii,0:n_sn,:]*((ter_ystag[1:,:]-ter_ystag[0:n_sn,:])/dx)
+        adj_term1=zx*U[ii,:,0:n_we]
+        adj_term2=zy*V[ii,0:n_sn,:]        
         W[ii+1,:,:]=(adj_term1+adj_term2-div[ii,:,:])*dnw[ii]+W[ii,:,:]
 
-    return W
+    return W, zx, zy
 
 def select_obv(obv_lster,clock_obj):
     """ Select observation list for this timeframe """
