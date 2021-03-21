@@ -14,3 +14,10 @@ def write_cfg(cfg_hdl, config_fn):
     with open(config_fn, 'w') as configfile:
         cfg_hdl.write(configfile)
 
+def merge_cfg(cfg_org, cfg_tgt):
+    cfg_tgt['INPUT']=cfg_org['INPUT']
+    cfg_tgt['CORE']['interp_strt_t']=cfg_org['CORE']['interp_strt_t']
+    cfg_tgt['CORE']['interp_t_length']=cfg_org['CORE']['interp_t_length']
+    cfg_tgt['CORE']['interp_interval']=cfg_org['CORE']['interp_interval']
+    
+    return cfg_tgt

@@ -108,4 +108,27 @@ def div_2d(uwnd, vwnd, dx, dy):
     div=np.zeros((nz,ny,nx))
     div=(uwnd[:,:,1:nx+1]-uwnd[:,:,0:nx])/dx+(vwnd[:,1:ny+1,:]-vwnd[:,0:ny,:])/dy
     return div
-    
+
+def pad_var2d(var_org, direction, dim):
+    (n_sn, n_we)=var_org.shape
+    if dim==1:
+        var=np.zeros((n_sn, n_we+1))
+        if direction=='tail':
+            var[:,0:n_we]=var_org
+            var[:,n_we]=var_org[:,n_we-1]
+        elif direction=='head':
+            var[:,1:]=var_org
+            var[:,0]=var_org[:,0]
+    else:
+        var=np.zeros((n_sn+1, n_we))
+        if direction=='tail':
+            var[0:n_sn,:]=var_org
+            var[n_sn,:]=var_org[n_sn-1,:]
+        elif direction=='head':
+            var[1:,:]=var_org
+            var[0,:]=var_org[0,:]
+
+    return var
+
+
+

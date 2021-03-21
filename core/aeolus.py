@@ -20,6 +20,8 @@ import copy
 
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
+import scipy as sp
+import scipy.ndimage
 
 import sys, os
 sys.path.append('../')
@@ -109,49 +111,77 @@ class aeolus:
             v_prof_near=np.take_along_axis(v_prof_mtx[:,:,:,idz], vsort_idx, axis=-1)[:,:,0:3]
             self.V.values[idz,:,:]=inv_dis_wgt_2d(v_prof_near, dis_mtx_v_near)
 
-        # cast 10-m uv/ 2-m temp interpolation
-            self.U10.values=cast_2d([obv.u10 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
-            self.V10.values=cast_2d([obv.v10 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
-            self.T2.values=cast_2d([obv.t2 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
-            
-        
         print(print_prefix+'First-guess W...')
         self.W.values,self.zx,self.zy=diag_vert_vel(self, fields_hdl)
         
         print(print_prefix+"Adjust results by mass conservation...")
-        self.adjust_mass(fields_hdl)
+        #self.adjust_mass(fields_hdl)
+        self.simple_terrain_adjust(fields_hdl)
+
+        # cast 2-m temp interpolation
+        self.T2.values=cast_2d([obv.t2 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
         
+        
+        
+    def simple_terrain_adjust(self, fields_hdl):
+        """adjust result according to simple terrain gradient"""
+        dx, ter, ztop=fields_hdl.dx,  fields_hdl.ter, fields_hdl.ztop
+        n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
+        n_z=fields_hdl.geo_z_idx+1 # only adjust mass within the boundary layer
+        zx, zy=self.zx, self.zy
+        U0, V0=self.U.values[0:n_z,:,:], self.V.values[0:n_z,:,:]
+        
+        sigma=[1.0, 1.0] 
+        # get slope in radius
+        x_slop=np.arctan(zx*(ztop-ter)*10.)
+        y_slop=np.arctan(zy*(ztop-ter)*10.)
+        for iz in range(0,n_z):
+            U0[iz,:,0:n_we]=U0[iz,:,0:n_we]*np.cos(x_slop)
+            V0[iz,0:n_sn,:]=V0[iz,0:n_sn,:]*np.cos(y_slop)
+            U0[iz,:,:] = sp.ndimage.filters.gaussian_filter(U0[iz,:,:], sigma, mode='constant')
+            V0[iz,:,:] = sp.ndimage.filters.gaussian_filter(V0[iz,:,:], sigma, mode='constant')
+
+        # cast 10-m uv 
+        self.U10.values, self.V10.values= self.U.values[0,:,0:n_we],self.V.values[0,0:n_sn,:]
+
     def adjust_mass(self, fields_hdl):
         """ adjust result according to continuity equation (mass conservation) """
         # prepare variables
         dx, ter, ztop=fields_hdl.dx,  fields_hdl.ter, fields_hdl.ztop
-        n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
-        n_z=fields_hdl.geo_z_idx+1 # only adjust mass within the boundary layer
+        #n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
+        #n_z=fields_hdl.geo_z_idx+1 # only adjust mass within the boundary layer
+        n_sn, n_we=4,4
+        n_z=4
         dnw=fields_hdl.dnw[0:n_z+1] # delt eta value on each layer
-        zx, zy=self.zx, self.zy
+        #zx, zy=self.zx, self.zy
+        zx, zy=self.zx[0:4,0:4], self.zy[0:4,0:4]
         
         # first guass u, v, w
-        U0, V0, W0=self.U.values, self.V.values, self.W.values
+#        U0, V0, W0=self.U.values[0:n_z,:,:], self.V.values[0:n_z,:,:], self.W.values[0:n_z,:,:]
+        U0, V0, W0=self.U.values[0:n_z,0:n_sn,0:n_we+1], self.V.values[0:n_z,0:n_sn+1,0:n_we], self.W.values[0:n_z,0:n_sn,0:n_we]
         alx, aly, alz=self.alpha_x, self.alpha_y, self.alpha_z
         
         #zx xstag to right 
-        zx_xstag_r=np.zeros(U0.shape[1:])
-        zx_xstag_r[:,0:n_we]=zx
-        zx_xstag_r[:,n_we]=zx[:,n_we-1]
+        zx_xstag_r=utils.pad_var2d(zx,'tail',dim=1)
+        zx_xstag_l=utils.pad_var2d(zx,'head',dim=1)
+        zy_ystag_u=utils.pad_var2d(zy,'tail',dim=0)
+        zy_ystag_d=utils.pad_var2d(zy,'head',dim=0)
         
-        zy_ystag_u=np.zeros(V0.shape[1:])
-        zy_ystag_u[0:n_sn,:]=zy
-        zy_ystag_u[n_sn,:]=zy[n_sn-1,:]
-
-
-        zx_xstag_l=np.zeros(U0.shape[1:])
-        zx_xstag_l[:,1:]=zx
-        zx_xstag_l[:,0]=zx[:,0]
+        # leftward pad U0
+        U0_l=U0
+        U0_l[:,:,1:]=U0[:,:,0:n_we]
+        U0_l[:,:,0]=U0[:,:,0]
         
-        zy_ystag_d=np.zeros(V0.shape[1:])
-        zy_ystag_d[1:,:]=zy
-        zy_ystag_d[0,:]=zy[0,:]
- 
+        # downward pad V0
+        V0_d=V0
+        V0_d[:,1:,:]=V0[:,0:n_sn,:]
+        V0_d[:,0,:]=V0[:,0,:]
+                          
+        # upward and downward pad W0
+        W0_ex=np.zeros((n_z+2,n_sn,n_we))
+        W0_ex[1:n_z+1,:,:]=W0
+        W0_ex[0,:,:]=W0[0,:,:]
+        W0_ex[-1,:,:]=W0[-1,:,:]
 
         # write the terms according to (4.16) in Magnusson.pdf
         ax2 = 1.0/(alx*alx)
@@ -166,19 +196,76 @@ class aeolus:
         O2=-(ax2*zx*zx+ay2*zy*zy) #(n_sn,n_we)
         O1_mtx=np.broadcast_to(O1, (n_sn, n_we, n_z))
         O2_mtx=np.broadcast_to(O2, (n_z, n_sn, n_we))
-        O=np.zeros((n_z,n_sn,n_we)) #(n_sn, n_we, n_z)
+        O=np.zeros((n_z,n_sn,n_we)) #(n_z, n_sn, n_we)
         for iz in range(0,n_z):
             O[iz,:,:]=O2_mtx[iz,:,:]+O1_mtx[:,:,iz]
-
+        print(O)
+        exit()
         Ax=ax2*(2+(zx_xstag_l[:,1:]-zx_xstag_l[:,0:n_we])/(2*dx)) # (n_sn, n_we)
         Ay=ay2*(2+(zy_ystag_d[1:,:]-zy_ystag_d[0:n_sn,:])/(2*dx)) # (n_sn, n_we)
-        Bz=2*az2/(dnw[0:n_z]*(dnw[0:n_z]+dnw[1:])) # (n_z)
+        Az=2*az2/(dnw[0:n_z]*(dnw[0:n_z]+dnw[1:])) # (n_z)
 
         # Right terms. Magnusson.pdf (4.17)
-        R=0
+        R1=(U0[:,:,1:]-U0_l[:,:,:n_we])/(2*dx) #(n_z, n_sn, n_we)
+        R2=(V0[:,1:,:]-V0_d[:,:n_sn,:])/(2*dx) #(n_z, n_sn, n_we)
+        
+        R3_c1=np.broadcast_to(np.power(dnw[0:n_z],2),(n_sn, n_we, n_z))
+        R3_c2=np.broadcast_to(np.power(dnw[0:n_z],2)-np.power(dnw[1:],2),(n_sn, n_we, n_z))
+        R3_c3=np.broadcast_to(np.power(dnw[1:],2),(n_sn, n_we, n_z))
+        
+        R3_de=np.broadcast_to((dnw[1:]*dnw[0:n_z]*(dnw[0:n_z]+dnw[1:])),(n_sn,n_we,n_z))
+        R3=R=np.zeros((n_z,n_sn,n_we)) #(n_z, n_sn, n_we)
+        for iz in range(0,n_z):
+            R3=R3_c1[:,:,iz]*W0_ex[iz+2,:,:]-R3_c2[:,:,iz]*W0_ex[iz+1,:,:]-R3_c3[:,:,iz]*W0_ex[iz,:,:]
+            R3=R3/R3_de[:,:,iz]
+            R[iz,:,:]=zx*U0[iz,:,:n_we]+zy*V0[iz,:n_sn,:]
+        R=-(R1+R2+R3-R)
+        
         # all necessary data collected! Let's do the magic!
         
+        # set boundary condition for b
+        R[0,:,:], R[-1,:,:] = 0, 0
+        R[:,0,:], R[:,-1,:] = 0, 0
+        R[:,:,0], R[:,:,-1] = 0, 0
 
+        # construct A
+        bsize=n_z*n_sn*n_we
+        A=lil_matrix((bsize,bsize))
+
+        # set diag
+        A.setdiag(1)
+        b=np.reshape(R,(bsize), order='C') # last axis change fastest
+        O1d=np.reshape(O,(bsize), order='C')
+
+        # no need to loop boundary
+        for iz in range(1,n_z-1):
+            for iy in range(1, n_sn-1):
+                for ix in range(1, n_we-1):
+                    ib=ix+iy*n_we+iz*n_sn
+                    #A[ib,:]=O1d
+                    for iz2 in range(1,n_z-1):
+                        for iy2 in range(1, n_sn-1):
+                            for ix2 in range(1, n_we-1):
+                                ib2=ix2+iy2*n_we+iz2*n_sn
+                                ib2_ip1=(ix2+1)+iy2*n_we+iz2*n_sn
+                                ib2_jp1=ix2+(iy2+1)*n_we+iz2*n_sn
+                                ib2_kp1=ix2+iy2*n_we+(iz2+1)*n_sn
+                                ib2_is1=(ix2-1)+iy2*n_we+iz2*n_sn
+                                ib2_js1=ix2+(iy2-1)*n_we+iz2*n_sn
+                                ib2_ks1=ix2+iy2*n_we+(iz2-1)*n_sn
+                                A[ib,ib2]=O[iz2,iy2,ix2] 
+                                #A[ib,ib2_ip1]=Bx[iy2,ix2]
+                                #A[ib,ib2_jp1]=By[iy2,ix2]
+                                #A[ib,ib2_kp1]=Bz[iz2]
+                                #A[ib,ib2_is1]=Ax[iy2,ix2]
+                                #A[ib,ib2_js1]=Ay[iy2,ix2]
+                                #A[ib,ib2_ks1]=Az[iz2]
+        print(A)
+        print(b)
+        A=A.tocsr()
+        x=spsolve(A,b)
+        print(x)
+        exit()
 
 def cast_2d(var_list, fields_hdl, dis_mtx_near, sort_idx):
     """ For cast 10-m uv/ 2-m temp """
@@ -200,14 +287,12 @@ def diag_vert_vel(aeolus, fields_hdl):
     # bottom boundary condition for vertical velocity
     W[0,:,:]=0.0
 
-    ter_xstag=np.zeros(U.shape[1:])
-    ter_xstag[:,0:n_we]=ter
-    ter_xstag[:,n_we]=ter[:,n_we-1]
-    ter_ystag=np.zeros(V.shape[1:])
-    ter_ystag[0:n_sn,:]=ter
-    ter_ystag[n_sn,:]=ter[n_sn-1,:]
+    ter_xstag=utils.pad_var2d(ter, 'tail', dim=1)
+    ter_ystag=utils.pad_var2d(ter, 'tail', dim=0)
+
     
     div=utils.div_2d(U, V, dx, dx)
+
     # eta coordinate terrain gradient term, see (4.12a, 4.12b) in Magnusson.pdf
     zx=(1.0/(ztop-ter))*((ter_xstag[:,1:]-ter_xstag[:,0:n_we])/dx)
     zy=(1.0/(ztop-ter))*((ter_ystag[1:,:]-ter_ystag[0:n_sn,:])/dx)
@@ -263,7 +348,7 @@ def output_fields(cfg, aeolus, clock):
     curr_time=clock.curr_time
 
     time_stamp=curr_time.strftime('%Y-%m-%d_%H:%M:%S')
-    template_fn=cfg['INPUT']['input_root']+cfg['INPUT']['input_wrf']
+    template_fn='./db/'+cfg['INPUT']['input_wrf']
     out_fn=cfg['OUTPUT']['output_root']+cfg['INPUT']['input_wrf']+'_'+time_stamp
     
     os.system('cp '+template_fn+' '+out_fn)
