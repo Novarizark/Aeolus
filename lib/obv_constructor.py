@@ -102,7 +102,6 @@ class obv:
 
         # Ekman layer, interpolate to geostrophic wind
         idz2=fields_hdl.geo_z_idx+1
-        
         x_org=[fields_hdl.z[idz-1], fields_hdl.z[idz2]]
         u_org=[self.u_prof[idz-1], self.u_prof[idz2]]
         v_org=[self.v_prof[idz-1], self.v_prof[idz2]]

@@ -1,4 +1,4 @@
-#/usr/bin/env python3
+#!/home/metctm1/array/soft/anaconda3/bin/python
 '''
 Date: Feb 04, 2021
 Aeolus is a wind diagnostic model to interpolate in-situ wind observations

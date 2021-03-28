@@ -66,6 +66,14 @@ def wind_prof(ws0, h0, tgt_h, p):
     """
     return ws0*pow((tgt_h/h0), p)
 
+def wind_prof_2d(ws0_2d, h0_2d, tgt_h_2d, p_2d):
+    """ 
+    calculate wind speed at tgt_h according to
+    ws0 at h0 and exponent value p, all data in 2D
+    """
+    return ws0_2d*np.power((tgt_h_2d/h0_2d), p_2d)
+
+
 def get_closest_idx(a1d, val):
     """
         Find the nearest idx in 1-D array (a1d) according to a given val
@@ -127,6 +135,27 @@ def pad_var2d(var_org, direction, dim):
         elif direction=='head':
             var[1:,:]=var_org
             var[0,:]=var_org[0,:]
+
+    return var
+
+def pad_var3d(var_org, direction, dim):
+    (n_z, n_sn, n_we)=var_org.shape
+    if dim==2:
+        var=np.zeros((n_z, n_sn, n_we+1))
+        if direction=='tail':
+            var[:,:,0:n_we]=var_org
+            var[:,:,n_we]=var_org[:,:,n_we-1]
+        elif direction=='head':
+            var[:,:,1:]=var_org
+            var[:,:,0]=var_org[:,:,0]
+    else:
+        var=np.zeros((n_z, n_sn+1, n_we))
+        if direction=='tail':
+            var[:,0:n_sn,:]=var_org
+            var[:,n_sn,:]=var_org[:,n_sn-1,:]
+        elif direction=='head':
+            var[:,1:,:]=var_org
+            var[:,0,:]=var_org[:,0,:]
 
     return var
 

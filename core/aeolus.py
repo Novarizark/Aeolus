@@ -13,15 +13,14 @@ Core Component: Aeolus Interpolator
         output_fields(cfg, aeolus): Output diagnostic fields into WRF template file
 
 """
-
+import h5netcdf 
 import xarray as xr
 import numpy as np
 import copy
 
 from scipy.sparse import lil_matrix
-from scipy.sparse.linalg import spsolve
-import scipy as sp
-import scipy.ndimage
+from scipy.sparse.linalg import spsolve, eigsh
+from scipy import interpolate
 
 import sys, os
 sys.path.append('../')
@@ -115,8 +114,13 @@ class aeolus:
         self.W.values,self.zx,self.zy=diag_vert_vel(self, fields_hdl)
         
         print(print_prefix+"Adjust results by mass conservation...")
-        #self.adjust_mass(fields_hdl)
-        self.simple_terrain_adjust(fields_hdl)
+        solve_nz=4 # try 4 layer scale at first
+        while solve_nz > 0:
+            solve_nz=self.adjust_mass(fields_hdl, solve_nz)
+
+        if solve_nz <0:
+            print('simple adjust...')
+            self.simple_terrain_adjust(fields_hdl)
 
         # cast 2-m temp interpolation
         self.T2.values=cast_2d([obv.t2 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
@@ -125,57 +129,64 @@ class aeolus:
         
     def simple_terrain_adjust(self, fields_hdl):
         """adjust result according to simple terrain gradient"""
-        dx, ter, ztop=fields_hdl.dx,  fields_hdl.ter, fields_hdl.ztop
+        dx, ter, pbl_top=fields_hdl.dx,  fields_hdl.ter, fields_hdl.pbl_top
         n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
         n_z=fields_hdl.geo_z_idx+1 # only adjust mass within the boundary layer
         zx, zy=self.zx, self.zy
+        zx, zy=zx*(pbl_top-ter), zy*(pbl_top-ter)
         U0, V0=self.U.values[0:n_z,:,:], self.V.values[0:n_z,:,:]
         
         sigma=[1.0, 1.0] 
         # get slope in radius
-        x_slop=np.arctan(zx*(ztop-ter)*10.)
-        y_slop=np.arctan(zy*(ztop-ter)*10.)
+        x_slop=np.arctan(2*zx)
+        y_slop=np.arctan(2*zy)
         for iz in range(0,n_z):
-            U0[iz,:,0:n_we]=U0[iz,:,0:n_we]*np.cos(x_slop)
-            V0[iz,0:n_sn,:]=V0[iz,0:n_sn,:]*np.cos(y_slop)
-            U0[iz,:,:] = sp.ndimage.filters.gaussian_filter(U0[iz,:,:], sigma, mode='constant')
-            V0[iz,:,:] = sp.ndimage.filters.gaussian_filter(V0[iz,:,:], sigma, mode='constant')
+            U0[iz,:,0:n_we]=U0[iz,:,0:n_we]/np.cos(x_slop)
+            V0[iz,0:n_sn,:]=V0[iz,0:n_sn,:]/np.cos(y_slop)
+           # U0[iz,:,:] = sp.ndimage.filters.gaussian_filter(U0[iz,:,:], sigma, mode='constant')
+           # V0[iz,:,:] = sp.ndimage.filters.gaussian_filter(V0[iz,:,:], sigma, mode='constant')
 
         # cast 10-m uv 
         self.U10.values, self.V10.values= self.U.values[0,:,0:n_we],self.V.values[0,0:n_sn,:]
 
-    def adjust_mass(self, fields_hdl):
+    def adjust_mass(self, fields_hdl, n_z):
         """ adjust result according to continuity equation (mass conservation) """
-        # prepare variables
-        dx, ter, ztop=fields_hdl.dx,  fields_hdl.ter, fields_hdl.ztop
-        #n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
-        #n_z=fields_hdl.geo_z_idx+1 # only adjust mass within the boundary layer
-        n_sn, n_we=4,4
-        n_z=4
-        dnw=fields_hdl.dnw[0:n_z+1] # delt eta value on each layer
-        #zx, zy=self.zx, self.zy
-        zx, zy=self.zx[0:4,0:4], self.zy[0:4,0:4]
-        
-        # first guass u, v, w
-#        U0, V0, W0=self.U.values[0:n_z,:,:], self.V.values[0:n_z,:,:], self.W.values[0:n_z,:,:]
+        n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
+        # only adjust mass within the boundary layer
+        if n_z>(fields_hdl.near_surf_z_idx):
+            return -1        
+        #--- test code
+        #n_sn, n_we=80, 80
+        #n_z=4
+        #--- test code
+        dx, ter=fields_hdl.dx,  fields_hdl.ter[0:n_sn,0:n_we].values
+
+        z3d=fields_hdl.abz3d[0:n_z+2,0:n_sn,0:n_we].values
+        ztop=fields_hdl.abz3d[n_z+2,0:n_sn,0:n_we].values
+        ter3d=np.broadcast_to(ter, (n_z+2, n_sn, n_we))
+        ztop3d=np.broadcast_to(ztop, (n_z+2, n_sn, n_we))
+        eta=ztop3d*(z3d-ter3d)/(ztop3d-ter3d)
+        dnw=eta[1:,:,:]-eta[0:n_z+1,:,:]
+        ter_xstag=utils.pad_var2d(ter, 'tail', dim=1)
+        ter_ystag=utils.pad_var2d(ter, 'tail', dim=0)
+        # eta coordinate terrain gradient term (within PBL), see (4.12a, 4.12b) in Magnusson.pdf
+        zx=(1.0/(ztop-ter))*((ter_xstag[:,1:]-ter)/dx)
+        zy=(1.0/(ztop-ter))*((ter_ystag[1:,:]-ter)/dx)
+
         U0, V0, W0=self.U.values[0:n_z,0:n_sn,0:n_we+1], self.V.values[0:n_z,0:n_sn+1,0:n_we], self.W.values[0:n_z,0:n_sn,0:n_we]
         alx, aly, alz=self.alpha_x, self.alpha_y, self.alpha_z
-        
-        #zx xstag to right 
+       
+        #zx xstag to east/west and north/south 
         zx_xstag_r=utils.pad_var2d(zx,'tail',dim=1)
         zx_xstag_l=utils.pad_var2d(zx,'head',dim=1)
         zy_ystag_u=utils.pad_var2d(zy,'tail',dim=0)
         zy_ystag_d=utils.pad_var2d(zy,'head',dim=0)
+    
+        # leftward (westward) pad U0
+        U0_l=utils.pad_var3d(U0,'head',dim=2)
         
-        # leftward pad U0
-        U0_l=U0
-        U0_l[:,:,1:]=U0[:,:,0:n_we]
-        U0_l[:,:,0]=U0[:,:,0]
-        
-        # downward pad V0
-        V0_d=V0
-        V0_d[:,1:,:]=V0[:,0:n_sn,:]
-        V0_d[:,0,:]=V0[:,0,:]
+        # downward (southward) pad V0
+        V0_d=utils.pad_var3d(V0,'head', dim=1)
                           
         # upward and downward pad W0
         W0_ex=np.zeros((n_z+2,n_sn,n_we))
@@ -184,91 +195,139 @@ class aeolus:
         W0_ex[-1,:,:]=W0[-1,:,:]
 
         # write the terms according to (4.16) in Magnusson.pdf
-        ax2 = 1.0/(alx*alx)
-        ay2 = 1.0/(aly*aly)
-        az2 = 1.0/(alz*alz)
+        ax2, ay2, az2 = 1.0/(alx*alx), 1.0/(aly*aly), 1.0/(alz*alz)
 
-        Bx=ax2*(2+(zx_xstag_r[:,1:]-zx_xstag_r[:,0:n_we])/(2*dx)) # (n_sn, n_we)
-        By=ay2*(2+(zy_ystag_u[1:,:]-zy_ystag_u[0:n_sn,:])/(2*dx)) # (n_sn, n_we)
-        Bz=2*az2/(dnw[1:]*(dnw[0:n_z]+dnw[1:])) # (n_z)
+        Bx=ax2*(2+dx*(zx_xstag_r[:,1:]-zx))/(2*dx*dx) # (n_sn, n_we)
+        By=ay2*(2+dx*(zy_ystag_u[1:,:]-zy))/(2*dx*dx) # (n_sn, n_we)
+        Bz=2*az2/(dnw[1:,:,:]*(dnw[0:n_z,:,:]+dnw[1:,:,:])) # (n_z, n_sn, n_we)
         
-        O1=-(ax2/(dx*dx)+ay2/(dx*dx)+az2/(dnw[1:]*dnw[0:n_z])) # (n_z)
+        O1=-(ax2/(dx*dx)+ay2/(dx*dx)+az2/(dnw[1:,:,:]*dnw[0:n_z,:,:])) # (n_z, n_sn, n_we)
         O2=-(ax2*zx*zx+ay2*zy*zy) #(n_sn,n_we)
-        O1_mtx=np.broadcast_to(O1, (n_sn, n_we, n_z))
         O2_mtx=np.broadcast_to(O2, (n_z, n_sn, n_we))
-        O=np.zeros((n_z,n_sn,n_we)) #(n_z, n_sn, n_we)
-        for iz in range(0,n_z):
-            O[iz,:,:]=O2_mtx[iz,:,:]+O1_mtx[:,:,iz]
-        print(O)
-        exit()
-        Ax=ax2*(2+(zx_xstag_l[:,1:]-zx_xstag_l[:,0:n_we])/(2*dx)) # (n_sn, n_we)
-        Ay=ay2*(2+(zy_ystag_d[1:,:]-zy_ystag_d[0:n_sn,:])/(2*dx)) # (n_sn, n_we)
-        Az=2*az2/(dnw[0:n_z]*(dnw[0:n_z]+dnw[1:])) # (n_z)
+        O=O1+O2
+
+        Ax=ax2*(2+dx*(zx_xstag_l[:,1:]-zx))/(2*dx*dx) # (n_sn, n_we)
+        Ay=ay2*(2+dx*(zy_ystag_d[1:,:]-zy))/(2*dx*dx) # (n_sn, n_we)
+        Az=2*az2/(dnw[0:n_z,:,:]*(dnw[0:n_z,:,:]+dnw[1:,:,:])) # (n_z, n_sn, n_we)
 
         # Right terms. Magnusson.pdf (4.17)
         R1=(U0[:,:,1:]-U0_l[:,:,:n_we])/(2*dx) #(n_z, n_sn, n_we)
         R2=(V0[:,1:,:]-V0_d[:,:n_sn,:])/(2*dx) #(n_z, n_sn, n_we)
         
-        R3_c1=np.broadcast_to(np.power(dnw[0:n_z],2),(n_sn, n_we, n_z))
-        R3_c2=np.broadcast_to(np.power(dnw[0:n_z],2)-np.power(dnw[1:],2),(n_sn, n_we, n_z))
-        R3_c3=np.broadcast_to(np.power(dnw[1:],2),(n_sn, n_we, n_z))
+        R3_c1=np.power(dnw[0:n_z,:,:],2)*W0_ex[2:n_z+2,:,:]
+        R3_c2=(np.power(dnw[0:n_z,:,:],2)-np.power(dnw[1:,:,:],2))*W0_ex[1:n_z+1,:,:]
+        R3_c3=np.power(dnw[1:,:,:],2)*W0_ex[:n_z,:,:]        
         
-        R3_de=np.broadcast_to((dnw[1:]*dnw[0:n_z]*(dnw[0:n_z]+dnw[1:])),(n_sn,n_we,n_z))
-        R3=R=np.zeros((n_z,n_sn,n_we)) #(n_z, n_sn, n_we)
-        for iz in range(0,n_z):
-            R3=R3_c1[:,:,iz]*W0_ex[iz+2,:,:]-R3_c2[:,:,iz]*W0_ex[iz+1,:,:]-R3_c3[:,:,iz]*W0_ex[iz,:,:]
-            R3=R3/R3_de[:,:,iz]
-            R[iz,:,:]=zx*U0[iz,:,:n_we]+zy*V0[iz,:n_sn,:]
+        R3_de=dnw[1:,:,:]*dnw[0:n_z,:,:]*(dnw[0:n_z,:,:]+dnw[1:,:,:])
+        R3=(R3_c1+R3_c2+R3_c3)/R3_de        
+        R=np.zeros((n_z,n_sn,n_we))
+        
+        
+        zx_3d, zy_3d=np.broadcast_to(zx, (n_z, n_sn, n_we)), np.broadcast_to(zy, (n_z, n_sn, n_we))
+        
+        R=zx_3d*U0[:,:,:n_we]+zy_3d*V0[:,:n_sn,:]
         R=-(R1+R2+R3-R)
-        
         # all necessary data collected! Let's do the magic!
         
-        # set boundary condition for b
+        # set boundary condition for b vector
         R[0,:,:], R[-1,:,:] = 0, 0
         R[:,0,:], R[:,-1,:] = 0, 0
         R[:,:,0], R[:,:,-1] = 0, 0
 
-        # construct A
+        # set b vector
         bsize=n_z*n_sn*n_we
+        b=np.reshape(R,(bsize), order='C') # last axis change fastest
+        # construct A
         A=lil_matrix((bsize,bsize))
 
-        # set diag
+        # set diag for A
         A.setdiag(1)
-        b=np.reshape(R,(bsize), order='C') # last axis change fastest
-        O1d=np.reshape(O,(bsize), order='C')
-
-        # no need to loop boundary
+        
+        # set lower boundary for A
+        for iy in range(1, n_sn-1):
+            for ix in range(1, n_we-1):
+                ib=ix+iy*n_we
+                ib2=ib+1
+                A[ib,ib2]=-1
+        
+        # fill A 
         for iz in range(1,n_z-1):
             for iy in range(1, n_sn-1):
                 for ix in range(1, n_we-1):
-                    ib=ix+iy*n_we+iz*n_sn
-                    #A[ib,:]=O1d
-                    for iz2 in range(1,n_z-1):
-                        for iy2 in range(1, n_sn-1):
-                            for ix2 in range(1, n_we-1):
-                                ib2=ix2+iy2*n_we+iz2*n_sn
-                                ib2_ip1=(ix2+1)+iy2*n_we+iz2*n_sn
-                                ib2_jp1=ix2+(iy2+1)*n_we+iz2*n_sn
-                                ib2_kp1=ix2+iy2*n_we+(iz2+1)*n_sn
-                                ib2_is1=(ix2-1)+iy2*n_we+iz2*n_sn
-                                ib2_js1=ix2+(iy2-1)*n_we+iz2*n_sn
-                                ib2_ks1=ix2+iy2*n_we+(iz2-1)*n_sn
-                                A[ib,ib2]=O[iz2,iy2,ix2] 
-                                #A[ib,ib2_ip1]=Bx[iy2,ix2]
-                                #A[ib,ib2_jp1]=By[iy2,ix2]
-                                #A[ib,ib2_kp1]=Bz[iz2]
-                                #A[ib,ib2_is1]=Ax[iy2,ix2]
-                                #A[ib,ib2_js1]=Ay[iy2,ix2]
-                                #A[ib,ib2_ks1]=Az[iz2]
-        print(A)
-        print(b)
+                    ib=ix+iy*n_we+iz*n_sn*n_we
+                    ib2=ib
+                    ib2_ip1=(ix+1)+iy*n_we+iz*n_sn*n_we
+                    ib2_jp1=ix+(iy+1)*n_we+iz*n_sn*n_we
+                    ib2_kp1=ix+iy*n_we+(iz+1)*n_sn*n_we
+                    ib2_is1=(ix-1)+iy*n_we+iz*n_sn*n_we
+                    ib2_js1=ix+(iy-1)*n_we+iz*n_sn*n_we
+                    ib2_ks1=ix+iy*n_we+(iz-1)*n_sn*n_we
+                    A[ib,ib2]=O[iz, iy, ix] 
+                    A[ib,ib2_ip1]=Bx[iy, ix]
+                    A[ib,ib2_jp1]=By[iy, ix]
+                    A[ib,ib2_kp1]=Bz[iz, iy, ix]
+                    A[ib,ib2_is1]=Ax[iy, ix]
+                    A[ib,ib2_js1]=Ay[iy, ix]
+                    A[ib,ib2_ks1]=Az[iz, iy, ix]
+        # print filling ratio
+        fill_r=100*A.getnnz()/(bsize*bsize)
+        print('fill_ratio:%7.6f%%' % fill_r)
         A=A.tocsr()
-        x=spsolve(A,b)
-        print(x)
-        exit()
+
+        # let's solve 
+        l=spsolve(A,b)
+        l3d=np.reshape(l,(n_z,n_sn,n_we), order='C')
+        
+        # eastward pad lambda 
+        l3d_e=utils.pad_var3d(l3d, 'tail', dim=2)
+
+        # northward pad lambda
+        l3d_n=utils.pad_var3d(l3d, 'tail', dim=1)
+
+        # upward pad lambda
+        l3d_u=np.zeros((n_z+1,n_sn,n_we))
+        l3d_u[:n_z,:,:]=l3d
+        l3d_u[-1,:,:]=l3d[-1,:,:]
+
+        du=ax2*(((l3d_e[:,:,1:]-l3d)/dx)+zx_3d*l3d)
+        dv=ay2*(((l3d_n[:,1:,:]-l3d)/dx)+zy_3d*l3d)
+        dw=az2*(((l3d_u[1:,:,:]-l3d)/dnw[0:n_z,:,:]))
+        du[[0,-1],:,:],dv[[0,-1],:,:],dw[[0,-1],:,:]=du[[1,-2],:,:],dv[[1,-2],:,:],dw[[1,-2],:,:] # set lower boundary
+        #du[-1,:,:],dv[-1,:,:],dw[-1,:,:]=du[-2,:,:],dv[-2,:,:],dw[-2,:,:] # set lower boundary
+        scal_u0,scal_v0,scal_w0=np.max(abs(U0),axis=(1,2)),np.max(abs(V0),axis=(1,2)),np.max(abs(W0),axis=(1,2))
+        scal_du,scal_dv,scal_dw=np.max(abs(du),axis=(1,2)),np.max(abs(dv),axis=(1,2)),np.max(abs(dw),axis=(1,2))
+        
+        print(scal_du)
+        
+        if np.any(scal_du>1.0): # unreal solution
+            print(print_prefix+'Solving linear system with '+str(n_z)+' vertical layers failed, try another time.')
+            return n_z+2
+            
+        U0[:,:,1:]=U0[:,:,1:]+4.0*du
+        V0[:,1:,:]=V0[:,1:,:]+4.0*dv
+        W0=W0+dw
+        print(print_prefix+'Solving linear system with '+str(n_z)+' vertical layers successful!')
+        self.interp_residual(n_z, fields_hdl, du[-1,:,:], dv[-1,:,:])
+        # cast 10-m uv 
+        self.U10.values[:,0:n_we], self.V10.values[0:n_sn,:]= self.U.values[0,:,0:n_we],self.V.values[0,0:n_sn,:]
+        return 0
+
+    def interp_residual(self, n_z, fields_hdl, du0, dv0):
+        """ Interpolate residual layers """
+        U0, V0=self.U.values, self.V.values
+        interp_topz=fields_hdl.near_surf_z_idx+3
+
+        layer_h=fields_hdl.z[interp_topz]-fields_hdl.z[n_z-1]
+        strt_h=fields_hdl.z[n_z-1]
+        
+        for iz in range(n_z, interp_topz):
+            dh=fields_hdl.z[iz]-strt_h
+            U0[iz,:,1:]=U0[iz,:,1:]+du0*(1-dh/layer_h).values
+            V0[iz,1:,:]=V0[iz,1:,:]+dv0*(1-dh/layer_h).values
+
 
 def cast_2d(var_list, fields_hdl, dis_mtx_near, sort_idx):
-    """ For cast 10-m uv/ 2-m temp """
+    """ For cast 2-m temp """
     n_obv=len(var_list)
     var_array=np.asarray(var_list)
     var_mtx=np.broadcast_to(var_array, (fields_hdl.n_sn, fields_hdl.n_we, n_obv))
@@ -277,10 +336,11 @@ def cast_2d(var_list, fields_hdl, dis_mtx_near, sort_idx):
 
 
 def diag_vert_vel(aeolus, fields_hdl):
-    """ Diagnose vertical velocity according to divergence in eta coordinate"""
-    dx, dnw, ter, ztop=fields_hdl.dx, fields_hdl.dnw, fields_hdl.ter, fields_hdl.ztop
+    """ Diagnose vertical velocity according to divergence in eta coordinate thru all layers"""
+    dx, dnw, ter, pbl_top=fields_hdl.dx, fields_hdl.dnw, fields_hdl.ter, fields_hdl.pbl_top
     n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
-    n_z=dnw.shape[0]
+    n_z=fields_hdl.geo_z_idx+1 # only diagnose vertical velocity within PBL 
+   # n_z=dnw.shape[0]
     U=aeolus.U.values
     V=aeolus.V.values
     W=aeolus.W.values
@@ -294,8 +354,8 @@ def diag_vert_vel(aeolus, fields_hdl):
     div=utils.div_2d(U, V, dx, dx)
 
     # eta coordinate terrain gradient term, see (4.12a, 4.12b) in Magnusson.pdf
-    zx=(1.0/(ztop-ter))*((ter_xstag[:,1:]-ter_xstag[:,0:n_we])/dx)
-    zy=(1.0/(ztop-ter))*((ter_ystag[1:,:]-ter_ystag[0:n_sn,:])/dx)
+    zx=(1.0/(pbl_top-ter))*((ter_xstag[:,1:]-ter)/dx)
+    zy=(1.0/(pbl_top-ter))*((ter_ystag[1:,:]-ter)/dx)
 
     
     # eta coordinate adjustment terms, see (4.9') in Magnusson.pdf
@@ -352,7 +412,7 @@ def output_fields(cfg, aeolus, clock):
     out_fn=cfg['OUTPUT']['output_root']+cfg['INPUT']['input_wrf']+'_'+time_stamp
     
     os.system('cp '+template_fn+' '+out_fn)
-    ds=xr.open_dataset(out_fn)
+    ds=xr.open_dataset(template_fn)
     ds.attrs['START_DATE']=init_timestamp
     ds.attrs['SIMULATION_START_DATE']=init_timestamp
     ds['Times'][0:19]=time_stamp[0:19]
@@ -365,6 +425,6 @@ def output_fields(cfg, aeolus, clock):
     ds['T2'].values[0,:,:]=aeolus.T2.values
     
     ds.to_netcdf(out_fn, mode='a')
-
+    ds.close()
 if __name__ == "__main__":
     pass

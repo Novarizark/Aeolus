@@ -79,18 +79,19 @@ class wrf_mesh:
         
 
 
-        z3d=wrf.getvar(wrf_hdl,'z') # model layer elevation above sea level
+        self.abz3d=wrf.getvar(wrf_hdl,'z') # model layer elevation above sea level
         self.dnw=wrf.getvar(wrf_hdl,'DNW') # d_eta value on model layer
         self.ter=wrf.getvar(wrf_hdl,'ter') # terrain height  
 
         # model layer elevation above terrain
-        self.z=z3d.mean(['south_north','west_east'])
-        self.ztop=self.z[-1]
+        self.z=self.abz3d.mean(['south_north','west_east'])
+#        self.ztop=self.z[-1]
         self.z=self.z-self.ter.mean(['south_north','west_east'])
         # eta value on model layer
         
         # get index of z for near surface layer and free atm 
         temp_z=float(config['CORE']['geo_wind_lv'])
+        self.pbl_top=temp_z
         self.geo_z_idx=utils.get_closest_idx(self.z.values,temp_z)
         temp_z=float(config['CORE']['near_surf_lv'])
         self.near_surf_z_idx=utils.get_closest_idx(self.z.values,temp_z)
@@ -104,7 +105,7 @@ class wrf_mesh:
         self.XLONG_U=wrf.getvar(wrf_hdl,'XLONG_U')
         self.XLAT_V=wrf.getvar(wrf_hdl,'XLAT_V')
         self.XLONG_V=wrf.getvar(wrf_hdl,'XLONG_V')
-        
+        wrf_hdl.close() 
         gc.collect()
         # DEPRECATED
         '''
