@@ -66,15 +66,16 @@ class aeolus:
         print(print_prefix+'Interpolate UV...')
         cast_lst=select_obv(obv_lst, clock)
         n_obv=len(cast_lst)
-        
+       
+        n_sn, n_we = fields_hdl.n_sn, fields_hdl.n_we
         # construct distance matrix on staggered u grid
-        self.dis_mtx_u=np.zeros((fields_hdl.n_sn, fields_hdl.n_we+1, n_obv))
+        self.dis_mtx_u=np.zeros((n_sn, n_we+1, n_obv))
         
         # construct distance matrix on staggered v grid
-        self.dis_mtx_v=np.zeros((fields_hdl.n_sn+1, fields_hdl.n_we, n_obv))
+        self.dis_mtx_v=np.zeros((n_sn+1, n_we, n_obv))
         
         # construct distance matrix on mass grid
-        self.dis_mtx=np.zeros((fields_hdl.n_sn, fields_hdl.n_we, n_obv))
+        self.dis_mtx=np.zeros((n_sn, n_we, n_obv))
 
         for idx, obv in enumerate(cast_lst):
             # advection distance (km) adjustment according to delta t
@@ -114,14 +115,19 @@ class aeolus:
         self.W.values,self.zx,self.zy=diag_vert_vel(self, fields_hdl)
         
         print(print_prefix+"Adjust results by mass conservation...")
-        solve_nz=4 # try 4 layer scale at first
+        solve_nz=3 # try 3 layer scale at first
+        '''
         while solve_nz > 0:
             solve_nz=self.adjust_mass(fields_hdl, solve_nz)
 
         if solve_nz <0:
             print('simple adjust...')
             self.simple_terrain_adjust(fields_hdl)
-
+        '''
+        # cast 10-m uv 
+        self.U10.values[:,0:n_we]= utils.wind_prof_2d(self.U.values[0,:,0:n_we], fields_hdl.z[0], 10.0, fields_hdl.pval)
+        self.V10.values[0:n_sn,:]= utils.wind_prof_2d(self.V.values[0,0:n_sn,:], fields_hdl.z[0], 10.0, fields_hdl.pval)
+        
         # cast 2-m temp interpolation
         self.T2.values=cast_2d([obv.t2 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
         
@@ -146,21 +152,18 @@ class aeolus:
            # U0[iz,:,:] = sp.ndimage.filters.gaussian_filter(U0[iz,:,:], sigma, mode='constant')
            # V0[iz,:,:] = sp.ndimage.filters.gaussian_filter(V0[iz,:,:], sigma, mode='constant')
 
-        # cast 10-m uv 
-        self.U10.values, self.V10.values= self.U.values[0,:,0:n_we],self.V.values[0,0:n_sn,:]
 
     def adjust_mass(self, fields_hdl, n_z):
         """ adjust result according to continuity equation (mass conservation) """
         n_sn, n_we=fields_hdl.n_sn, fields_hdl.n_we
-        # only adjust mass within the boundary layer
-        if n_z>(fields_hdl.near_surf_z_idx):
-            return -1        
-        #--- test code
-        #n_sn, n_we=80, 80
-        #n_z=4
-        #--- test code
-        dx, ter=fields_hdl.dx,  fields_hdl.ter[0:n_sn,0:n_we].values
 
+        # only adjust mass within 6 layers by solving Ax=b
+        if n_z>6:
+            return -1        
+        # scaling factor to adjust deltaU and deltaV
+        scal_f = 2.5 
+
+        dx, ter=fields_hdl.dx,  fields_hdl.ter[0:n_sn,0:n_we].values
         z3d=fields_hdl.abz3d[0:n_z+2,0:n_sn,0:n_we].values
         ztop=fields_hdl.abz3d[n_z+2,0:n_sn,0:n_we].values
         ter3d=np.broadcast_to(ter, (n_z+2, n_sn, n_we))
@@ -262,16 +265,12 @@ class aeolus:
                     ib2_is1=(ix-1)+iy*n_we+iz*n_sn*n_we
                     ib2_js1=ix+(iy-1)*n_we+iz*n_sn*n_we
                     ib2_ks1=ix+iy*n_we+(iz-1)*n_sn*n_we
-                    A[ib,ib2]=O[iz, iy, ix] 
-                    A[ib,ib2_ip1]=Bx[iy, ix]
-                    A[ib,ib2_jp1]=By[iy, ix]
-                    A[ib,ib2_kp1]=Bz[iz, iy, ix]
-                    A[ib,ib2_is1]=Ax[iy, ix]
-                    A[ib,ib2_js1]=Ay[iy, ix]
-                    A[ib,ib2_ks1]=Az[iz, iy, ix]
+                    A[ib,ib2],A[ib,ib2_ip1],A[ib,ib2_jp1],A[ib,ib2_kp1]=O[iz, iy, ix],Bx[iy, ix],By[iy, ix],Bz[iz, iy, ix] 
+                    A[ib,ib2_is1],A[ib,ib2_js1],A[ib,ib2_ks1]=Ax[iy, ix],Ay[iy, ix],Az[iz, iy, ix]
+        
         # print filling ratio
         fill_r=100*A.getnnz()/(bsize*bsize)
-        print('fill_ratio:%7.6f%%' % fill_r)
+        print(print_prefix+'A matrix filling ratio:%7.6f%%' % fill_r)
         A=A.tocsr()
 
         # let's solve 
@@ -289,27 +288,28 @@ class aeolus:
         l3d_u[:n_z,:,:]=l3d
         l3d_u[-1,:,:]=l3d[-1,:,:]
 
+        # yield du dv dw
         du=ax2*(((l3d_e[:,:,1:]-l3d)/dx)+zx_3d*l3d)
         dv=ay2*(((l3d_n[:,1:,:]-l3d)/dx)+zy_3d*l3d)
         dw=az2*(((l3d_u[1:,:,:]-l3d)/dnw[0:n_z,:,:]))
         du[[0,-1],:,:],dv[[0,-1],:,:],dw[[0,-1],:,:]=du[[1,-2],:,:],dv[[1,-2],:,:],dw[[1,-2],:,:] # set lower boundary
-        #du[-1,:,:],dv[-1,:,:],dw[-1,:,:]=du[-2,:,:],dv[-2,:,:],dw[-2,:,:] # set lower boundary
+        
         scal_u0,scal_v0,scal_w0=np.max(abs(U0),axis=(1,2)),np.max(abs(V0),axis=(1,2)),np.max(abs(W0),axis=(1,2))
         scal_du,scal_dv,scal_dw=np.max(abs(du),axis=(1,2)),np.max(abs(dv),axis=(1,2)),np.max(abs(dw),axis=(1,2))
         
+        print(print_prefix+'deltaU vector:')
         print(scal_du)
         
-        if np.any(scal_du>1.0): # unreal solution
+        if scal_du.mean()>5.0: # unreal solution
             print(print_prefix+'Solving linear system with '+str(n_z)+' vertical layers failed, try another time.')
-            return n_z+2
+            return n_z+1
             
-        U0[:,:,1:]=U0[:,:,1:]+4.0*du
-        V0[:,1:,:]=V0[:,1:,:]+4.0*dv
-        W0=W0+dw
         print(print_prefix+'Solving linear system with '+str(n_z)+' vertical layers successful!')
+        U0[:,:,1:],V0[:,1:,:]=U0[:,:,1:]+scal_f*du,V0[:,1:,:]+scal_f*dv
+        U0[:,:,0],V0[:,0,:]=U0[:,:,1],V0[:,0,:]
+        W0=W0+dw
         self.interp_residual(n_z, fields_hdl, du[-1,:,:], dv[-1,:,:])
-        # cast 10-m uv 
-        self.U10.values[:,0:n_we], self.V10.values[0:n_sn,:]= self.U.values[0,:,0:n_we],self.V.values[0,0:n_sn,:]
+        
         return 0
 
     def interp_residual(self, n_z, fields_hdl, du0, dv0):
@@ -323,7 +323,9 @@ class aeolus:
         for iz in range(n_z, interp_topz):
             dh=fields_hdl.z[iz]-strt_h
             U0[iz,:,1:]=U0[iz,:,1:]+du0*(1-dh/layer_h).values
+            U0[iz,:,0]=U0[iz,:,0]
             V0[iz,1:,:]=V0[iz,1:,:]+dv0*(1-dh/layer_h).values
+            V0[iz,0,:]=V0[iz,0,:]
 
 
 def cast_2d(var_list, fields_hdl, dis_mtx_near, sort_idx):

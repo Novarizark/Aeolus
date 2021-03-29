@@ -2,6 +2,7 @@
 """Preprocessing the WRF input file"""
 
 import datetime
+import numpy as np
 import xarray as xr
 import gc
 import netCDF4 as nc4
@@ -114,6 +115,16 @@ class wrf_mesh:
             self.z_on_u=self.interp_u_stag(self.z)
             self.z_on_v=self.interp_v_stag(self.z)
         '''
+
+
+
+    def get_area_pvalue(self, pvals):
+        '''
+        Get regional mean p value according to observation
+        '''
+        pvals=np.array(pvals)
+        self.pval=pvals.mean()
+
     def interp_u_stag(self, var):
         """ DEPRECATED METHOD
         Linear/Nearest interpolate var from mass grid onto staggered U grid 

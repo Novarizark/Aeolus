@@ -60,6 +60,8 @@ def main_run():
     obv_lst=[] 
     for row in obv_df.itertuples():
         obv_lst.append(lib.obv_constructor.obv(row, wind_prof_df, cfg_hdl, fields_hdl))
+    
+    fields_hdl.get_area_pvalue([obv.prof_pvalue for obv in obv_lst])
 
     print('Construct Model Clocks and Interpolating Estimators.....')
     clock_cfg=lib.model_clock.clock_cfg_parser(cfg_hdl)
