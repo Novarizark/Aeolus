@@ -39,6 +39,7 @@ def main_run():
     cfg_basic_hdl=lib.cfgparser.read_cfg('./conf/config.basic.ini')
     cfg_hdl=lib.cfgparser.read_cfg('./conf/config.ini')
     cfg_hdl=lib.cfgparser.merge_cfg(cfg_basic_hdl, cfg_hdl)
+    cfg_hdl['CORE']['ntasks']='1'
 
     print('Read Input Observations...')
     obv_df=pd.read_csv(cfg_hdl['INPUT']['input_root']+cfg_hdl['INPUT']['input_obv'],header=0,

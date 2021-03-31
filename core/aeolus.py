@@ -116,14 +116,13 @@ class aeolus:
         
         print(print_prefix+"Adjust results by mass conservation...")
         solve_nz=3 # try 3 layer scale at first
-        '''
         while solve_nz > 0:
             solve_nz=self.adjust_mass(fields_hdl, solve_nz)
 
         if solve_nz <0:
             print('simple adjust...')
             self.simple_terrain_adjust(fields_hdl)
-        '''
+        
         # cast 10-m uv 
         self.U10.values[:,0:n_we]= utils.wind_prof_2d(self.U.values[0,:,0:n_we], fields_hdl.z[0], 10.0, fields_hdl.pval)
         self.V10.values[0:n_sn,:]= utils.wind_prof_2d(self.V.values[0,0:n_sn,:], fields_hdl.z[0], 10.0, fields_hdl.pval)

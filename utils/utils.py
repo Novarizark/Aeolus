@@ -66,12 +66,12 @@ def wind_prof(ws0, h0, tgt_h, p):
     """
     return ws0*pow((tgt_h/h0), p)
 
-def wind_prof_2d(ws0_2d, h0_2d, tgt_h_2d, p_2d):
+def wind_prof_2d(ws0_2d, h0, tgt_h, p):
     """ 
     calculate wind speed at tgt_h according to
     ws0 at h0 and exponent value p, all data in 2D
     """
-    return ws0_2d*np.power((tgt_h_2d/h0_2d), p_2d)
+    return ws0_2d*(np.power((tgt_h/h0), p)).values
 
 
 def get_closest_idx(a1d, val):
