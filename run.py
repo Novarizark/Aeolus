@@ -16,6 +16,11 @@ Mar 05, 2021 --- MVP v0.03 New version
 Mar 08, 2021 --- MVP v0.04 New version
     --- Observation Examiner
     --- U10 V10 T2 bug fix
+Mar 30, 2021 --- MVP v0.90
+    --- Mass adjustment done! Dramatic leep! 
+Apr 02, 2021
+    --- Takes in sounding data
+    --- Vertical convection time scale adjustment
 
 Zhenning LI
 '''
@@ -46,7 +51,7 @@ def main_run():
             names=['yyyymmddhhMM','lat','lon','height','wind_speed','wind_dir','temp_2m','rh','pres','attr1','attr2'])
     # make sure the list is sorted by datetime and long enough
     obv_df=obv_df.sort_values(by='yyyymmddhhMM') 
-
+    
     print('Input Quality Control...')
     lib.obv_constructor.obv_examiner(obv_df)
     
@@ -62,7 +67,10 @@ def main_run():
     for row in obv_df.itertuples():
         obv_lst.append(lib.obv_constructor.obv(row, wind_prof_df, cfg_hdl, fields_hdl))
     
+    # get area mean pvalue 
     fields_hdl.get_area_pvalue([obv.prof_pvalue for obv in obv_lst])
+    # setup Ekman layer and geostrophic wind in obv wind profile
+    lib.obv_constructor.set_upper_wind(fields_hdl, obv_lst)
 
     print('Construct Model Clocks and Interpolating Estimators.....')
     clock_cfg=lib.model_clock.clock_cfg_parser(cfg_hdl)

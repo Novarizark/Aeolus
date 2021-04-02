@@ -116,7 +116,11 @@ class wrf_mesh:
             self.z_on_v=self.interp_v_stag(self.z)
         '''
 
-
+    def set_geos_wind(self, obv_df):
+        '''
+        Set geostrophic wind according to sounding in observation data, if any. 
+        '''
+               
 
     def get_area_pvalue(self, pvals):
         '''

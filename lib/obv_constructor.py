@@ -66,6 +66,9 @@ class obv:
         (self.u0, self.v0)=utils.wswd2uv(df_row.wind_speed, df_row.wind_dir)
         self.t2=df_row.temp_2m
         
+        # which layer is the obv located in
+        self.iz=utils.get_closest_idx(fields_hdl.z.values,self.z)
+        
         (self.rough_len, self.stab_lvl)=(cfg['CORE']['roughness_length'], cfg['CORE']['stability_level'])
         
         # get wind profile power law exponent value by linear search in the dataframe
@@ -91,26 +94,9 @@ class obv:
         (idx,idy)=utils.get_closest_idxy(fields_hdl.XLAT_V.values,fields_hdl.XLONG_V.values,self.lat,self.lon)
         self.v_prof=copy.copy(fields_hdl.V.values[:,idx,idy])
 
-        # power law within near surf layer 
-        idz=fields_hdl.near_surf_z_idx+1
-        self.u_prof[0:idz]=[utils.wind_prof(self.u0, self.z, z, self.prof_pvalue) for z in fields_hdl.z[0:idz].values]
-        self.v_prof[0:idz]=[utils.wind_prof(self.v0, self.z, z, self.prof_pvalue) for z in fields_hdl.z[0:idz].values]
-        
-        # record 10-m UV wind
-        self.u10=utils.wind_prof(self.u0, self.z, 10, self.prof_pvalue)
-        self.v10=utils.wind_prof(self.v0, self.z, 10, self.prof_pvalue)
-
-        # Ekman layer, interpolate to geostrophic wind
-        idz2=fields_hdl.geo_z_idx+1
-        x_org=[fields_hdl.z[idz-1], fields_hdl.z[idz2]]
-        u_org=[self.u_prof[idz-1], self.u_prof[idz2]]
-        v_org=[self.v_prof[idz-1], self.v_prof[idz2]]
-        interp_u=interpolate.interp1d(x_org,u_org)
-        interp_v=interpolate.interp1d(x_org,v_org)
-
-        self.u_prof[idz:idz2]=interp_u(fields_hdl.z.values[idz:idz2])
-        self.v_prof[idz:idz2]=interp_v(fields_hdl.z.values[idz:idz2])
-
+        # power law for all layers at first atempt 
+        self.u_prof=[utils.wind_prof(self.u0, self.z, z, self.prof_pvalue) for z in fields_hdl.z.values]
+        self.v_prof=[utils.wind_prof(self.v0, self.z, z, self.prof_pvalue) for z in fields_hdl.z.values]
 
 def obv_examiner(obv_df):
     """ Examine the input observational data """
@@ -124,6 +110,37 @@ def obv_examiner(obv_df):
         print(obv_df)
         utils.throw_error(print_prefix, 'Missing value is not allowed through "yyyymmddhhMM":"temp_2m"!\n'+
                 'please check in the above obv table!')
+
+def set_upper_wind(fields_hdl, obv_lst):
+    """ Set geostrophic and Ekman layer wind according to sounding in observation data, if any. """
+    
+    zlays=fields_hdl.z.values
+    nz=zlays.shape[0]
+    pbl_top=fields_hdl.pbl_top
+    idz1=fields_hdl.near_surf_z_idx
+    idz2=fields_hdl.geo_z_idx
+    x_org=[zlays[idz1], zlays[idz2]]
+    
+    geo_u_arr=np.array([obv.u0 for obv in obv_lst if obv.z >=pbl_top])
+    geo_v_arr=np.array([obv.v0 for obv in obv_lst if obv.z >=pbl_top])
+
+    geo_u, geo_v=geo_u_arr.mean(), geo_v_arr.mean()
+
+    for obv in obv_lst:
+        if obv.z<=pbl_top:
+            # Ekman layer, interpolate to geostrophic wind
+            u_org=[obv.u_prof[idz1], geo_u]
+            v_org=[obv.v_prof[idz1], geo_v]
+            interp_u=interpolate.interp1d(x_org,u_org)
+            interp_v=interpolate.interp1d(x_org,v_org)
+
+            obv.u_prof[idz1:idz2]=interp_u(zlays[idz1:idz2])
+            obv.v_prof[idz1:idz2]=interp_v(zlays[idz1:idz2])
+
+            # free atm
+            for iz in range(idz2,nz):
+                obv.u_prof[iz], obv.v_prof[iz]=geo_u, geo_v
+
 
 if __name__ == "__main__":
     pass
