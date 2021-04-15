@@ -51,6 +51,7 @@ class aeolus:
         self.U=fields_hdl.U
         self.V=fields_hdl.V
         self.W=fields_hdl.W
+        self.T=fields_hdl.T
         
         self.U10=fields_hdl.U10
         self.V10=fields_hdl.V10
@@ -62,6 +63,11 @@ class aeolus:
 
     def cast(self, obv_lst, fields_hdl, clock):
         """ cast interpolation on WRF mesh """
+        # e-folding rate in cross-layer interpolation 
+        efold_r=fields_hdl.efold_r
+        # convective propagation distance
+        conv_t=fields_hdl.conv_t
+        
         print(print_prefix+'Interpolate UV...')
         cast_lst=select_obv(obv_lst, clock)
         n_obv=len(cast_lst)
@@ -75,7 +81,7 @@ class aeolus:
         self.dis_mtx_v=np.zeros((n_sn+1, n_we, n_obv))
         
         # construct distance matrix on mass grid
-        self.dis_mtx=np.zeros((n_sn, n_we, n_obv))
+        self.dis_mtx_t=np.zeros((n_sn, n_we, n_obv))
 
         # get z level position (n_obv)
         zpos=np.asarray([obv.iz for obv in cast_lst])
@@ -86,55 +92,53 @@ class aeolus:
             adv_dis=abs((obv.t-clock.curr_time).total_seconds())*utils.wind_speed(obv.u0, obv.v0)/1000.0
             self.dis_mtx_u[:,:,idx]=adv_dis+utils.great_cir_dis_2d(obv.lat, obv.lon, fields_hdl.XLAT_U, fields_hdl.XLONG_U)
             self.dis_mtx_v[:,:,idx]=adv_dis+utils.great_cir_dis_2d(obv.lat, obv.lon, fields_hdl.XLAT_V, fields_hdl.XLONG_V)
-            self.dis_mtx[:,:,idx]=adv_dis+utils.great_cir_dis_2d(obv.lat, obv.lon, fields_hdl.XLAT, fields_hdl.XLONG)
+            self.dis_mtx_t[:,:,idx]=adv_dis+utils.great_cir_dis_2d(obv.lat, obv.lon, fields_hdl.XLAT, fields_hdl.XLONG)
         
-        # get uv profile (n_obv, nlvl)
-        u_profs, v_profs=np.asarray([obv.u_prof for obv in cast_lst]), np.asarray([obv.v_prof for obv in cast_lst])
+        # get uvt profile (n_obv, nlvl)
+        u_profs, v_profs, t_profs=np.asarray([obv.u_prof for obv in cast_lst]), np.asarray([obv.v_prof for obv in cast_lst]), np.asarray([obv.t_prof for obv in cast_lst])
+
 
         # construct for calculation
         u_prof_mtx=np.broadcast_to(u_profs, (n_sn, n_we+1, n_obv, nz))
         v_prof_mtx=np.broadcast_to(v_profs, (n_sn+1, n_we, n_obv, nz))
+        t_prof_mtx=np.broadcast_to(t_profs, (n_sn, n_we, n_obv, nz))
 
         # cast vertical profile interpolation 
-        efold_r=0.5
-        conv_t=3.0
         for idz in range(0, nz):
             # get dis to idz
             zdis=abs(zpos-idz)
-            print(zdis)
             zdis_umtx=np.broadcast_to(zdis, (n_sn, n_we+1, n_obv))
             zdis_vmtx=np.broadcast_to(zdis, (n_sn+1, n_we, n_obv))
+            zdis_tmtx=np.broadcast_to(zdis, (n_sn, n_we, n_obv))
 
             # penalize according to vertical distance
             dis_mtx_u=(self.dis_mtx_u+conv_t*zdis_umtx)*np.exp(zdis_umtx*efold_r)
             dis_mtx_v=(self.dis_mtx_v+conv_t*zdis_vmtx)*np.exp(zdis_vmtx*efold_r)
-            dis_mtx=(self.dis_mtx+conv_t*zdis_vmtx[0:n_sn,:,:])*np.exp(zdis_vmtx[0:n_sn,:,:]*efold_r)
+            dis_mtx_t=(self.dis_mtx_t+conv_t*zdis_tmtx)*np.exp(zdis_tmtx*efold_r)
             
             #print(dis_mtx[50,50,:])
             # sort_idx (n_sn, n_we, n_obv)
-            usort_idx=np.argsort(dis_mtx_u)
-            vsort_idx=np.argsort(dis_mtx_v)
+            usort_idx, vsort_idx, tsort_idx=np.argsort(dis_mtx_u), np.argsort(dis_mtx_v), np.argsort(dis_mtx_t)
 
             # sorted distance matrix and take the nearest 3 to construct the calculating matrix
             dis_mtx_u_near=np.take_along_axis(dis_mtx_u, usort_idx, axis=-1)[:,:,0:3]
             dis_mtx_v_near=np.take_along_axis(dis_mtx_v, vsort_idx, axis=-1)[:,:,0:3]
-
-            # store for t2m
-            if idz==0:
-                msort_idx=np.argsort(dis_mtx)
-                dis_mtx_near=np.take_along_axis(dis_mtx, msort_idx, axis=-1)[:,:,0:3]
+            dis_mtx_t_near=np.take_along_axis(dis_mtx_t, tsort_idx, axis=-1)[:,:,0:3]
 
             u_prof_near=np.take_along_axis(u_prof_mtx[:,:,:,idz], usort_idx, axis=-1)[:,:,0:3]
             self.U.values[idz,:,:]=inv_dis_wgt_2d(u_prof_near,dis_mtx_u_near)
               
             v_prof_near=np.take_along_axis(v_prof_mtx[:,:,:,idz], vsort_idx, axis=-1)[:,:,0:3]
             self.V.values[idz,:,:]=inv_dis_wgt_2d(v_prof_near, dis_mtx_v_near)
+            
+            t_prof_near=np.take_along_axis(t_prof_mtx[:,:,:,idz], tsort_idx, axis=-1)[:,:,0:3]
+            self.T.values[idz,:,:]=inv_dis_wgt_2d(t_prof_near, dis_mtx_t_near)
 
         print(print_prefix+'First-guess W...')
         self.W.values,self.zx,self.zy=diag_vert_vel(self, fields_hdl)
         
         print(print_prefix+"Adjust results by mass conservation...")
-        solve_nz=3 # try 3 layer scale at first
+        solve_nz=fields_hdl.solve_nz # try 3 layer scale at first
         while solve_nz > 0:
             solve_nz=self.adjust_mass(fields_hdl, solve_nz)
 
@@ -147,7 +151,7 @@ class aeolus:
         self.V10.values[0:n_sn,:]= utils.wind_prof_2d(self.V.values[0,0:n_sn,:], fields_hdl.z[0], 10.0, fields_hdl.pval)
         
         # cast 2-m temp interpolation
-        self.T2.values=cast_2d([obv.t2 for obv in cast_lst], fields_hdl,dis_mtx_near, msort_idx)            
+        self.T2.values=self.T.values[0,:,:]+300.0
         
         
         
@@ -438,6 +442,7 @@ def output_fields(cfg, aeolus, clock):
     ds['U'].values[0,:,:,:]=aeolus.U.values
     ds['V'].values[0,:,:,:]=aeolus.V.values
     ds['W'].values[0,:,:,:]=aeolus.W.values
+    ds['T'].values[0,:,:,:]=aeolus.T.values
     
     ds['U10'].values[0,:,:]=aeolus.U10.values
     ds['V10'].values[0,:,:]=aeolus.V10.values

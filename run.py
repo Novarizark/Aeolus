@@ -48,7 +48,7 @@ def main_run():
 
     print('Read Input Observations...')
     obv_df=pd.read_csv(cfg_hdl['INPUT']['input_root']+cfg_hdl['INPUT']['input_obv'],header=0,
-            names=['yyyymmddhhMM','lat','lon','height','wind_speed','wind_dir','temp_2m','rh','pres','attr1','attr2'])
+            names=['yyyymmddhhMM','lat','lon','height','wind_speed','wind_dir','temp','rh','pres','attr1','attr2'])
     # make sure the list is sorted by datetime and long enough
     obv_df=obv_df.sort_values(by='yyyymmddhhMM') 
     

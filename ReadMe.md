@@ -3,7 +3,6 @@
 
 Aeolus is a diagnostic model for interpolating in-situ wind observations onto geographical mesh based on `wrfout` template.
 
-**Any question, please contact Zhenning LI (zhenningli91@gmail.com)**
 
 ### Input Files
 
@@ -48,3 +47,5 @@ Documents related to the model.
 
 #### post_process
 Scratch script for visualization.
+
+**Any question, please contact Zhenning LI (zhenningli91@gmail.com)**

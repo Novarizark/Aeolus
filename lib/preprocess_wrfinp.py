@@ -72,7 +72,8 @@ class wrf_mesh:
         self.U = wrf.getvar(wrf_hdl, 'U')
         self.V = wrf.getvar(wrf_hdl, 'V')
         self.W = wrf.getvar(wrf_hdl, 'W')
-        
+        self.T = wrf.getvar(wrf_hdl, 'T')
+        self.p = wrf.getvar(wrf_hdl, 'pres') # Full Model Pressure in Pa
         # template UV10 and T2
         self.U10 = wrf.getvar(wrf_hdl, 'U10')
         self.V10 = wrf.getvar(wrf_hdl, 'V10')
@@ -98,6 +99,12 @@ class wrf_mesh:
         self.near_surf_z_idx=utils.get_closest_idx(self.z.values,temp_z)
 
         (self.n_sn, self.n_we)=self.ter.shape # on mass grid
+        
+        # get cross-layer interpolation parameters
+        self.efold_r=float(config['CORE']['efold_r'])
+        self.conv_t=float(config['CORE']['conv_t'])
+        # get mass adjustment init layer
+        self.solve_nz=int(config['CORE']['solve_nz'])
 
         # lats lons on mass and staggered grids
         self.XLAT=wrf.getvar(wrf_hdl,'XLAT')
