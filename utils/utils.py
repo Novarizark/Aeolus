@@ -59,6 +59,28 @@ def wind_speed(u, v):
     """ calculate wind speed according to U and V """
     return np.sqrt(u*u+v*v)
 
+def temp_prof(temp0, h0, p0, tgt_h, l):
+    """ 
+    calculate temperature at tgt_h according to
+    temp0 at h0 and lapse rate l
+
+    result converted to WRF perturbated potential T
+    """
+    TZERO=273.15
+    BASE_T=300.0
+    REF_P=100000.0 # 1000 hPa
+    R=287.43
+    CP=1005.0
+
+    
+    # change according lapse rate in Kelvin
+    k=TZERO + temp0-l*(tgt_h-h0)/100.0
+    
+    # transfer to potential temp
+    theta=k*np.power((REF_P/p0),R/CP)
+    
+    return theta - BASE_T
+
 def wind_prof(ws0, h0, tgt_h, p):
     """ 
     calculate wind speed at tgt_h according to

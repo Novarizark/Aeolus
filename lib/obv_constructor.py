@@ -64,17 +64,19 @@ class obv:
         self.t=datetime.datetime.strptime(str(df_row.yyyymmddhhMM),'%Y%m%d%H%M')
         
         (self.u0, self.v0)=utils.wswd2uv(df_row.wind_speed, df_row.wind_dir)
-        self.t2=df_row.temp_2m
+        self.t0=df_row.temp
         
         # which layer is the obv located in
         self.iz=utils.get_closest_idx(fields_hdl.z.values,self.z)
         
         (self.rough_len, self.stab_lvl)=(cfg['CORE']['roughness_length'], cfg['CORE']['stability_level'])
         
+        
         # get wind profile power law exponent value by linear search in the dataframe
         self.set_pvalue(wind_prof_df)
         
-        self.get_in_situ_prof(fields_hdl)
+        # get wind and temp profile
+        self.get_in_situ_prof(fields_hdl, cfg)
 
     def set_pvalue(self, wind_prof_df):
         """ search wind profile pvalue in table """
@@ -84,19 +86,24 @@ class obv:
         interp=interpolate.interp1d(x_org,y_org)
         self.prof_pvalue=interp(self.rough_len)
                 
-    def get_in_situ_prof(self, fields_hdl):
+    def get_in_situ_prof(self, fields_hdl, cfg):
         """ get in-situ wind profile in the observation station """
+        
+        # get temp profile used lapse rate
+        self.t_lapse=float(cfg['CORE']['lapse_t'])
         
         # get the wind profile from template file
         # BUG FIX: Need to copy the field var as field will be changed in aeolus.cast
-        (idx,idy)=utils.get_closest_idxy(fields_hdl.XLAT_U.values,fields_hdl.XLONG_U.values,self.lat,self.lon)
+        (idx,idy)=utils.get_closest_idxy(fields_hdl.XLAT.values,fields_hdl.XLONG.values,self.lat,self.lon)
         self.u_prof=copy.copy(fields_hdl.U.values[:,idx,idy])
-        (idx,idy)=utils.get_closest_idxy(fields_hdl.XLAT_V.values,fields_hdl.XLONG_V.values,self.lat,self.lon)
         self.v_prof=copy.copy(fields_hdl.V.values[:,idx,idy])
+        self.t_prof=copy.copy(fields_hdl.T.values[:,idx,idy])
+        self.p_prof=copy.copy(fields_hdl.p.values[:,idx,idy])
 
         # power law for all layers at first atempt 
         self.u_prof=[utils.wind_prof(self.u0, self.z, z, self.prof_pvalue) for z in fields_hdl.z.values]
         self.v_prof=[utils.wind_prof(self.v0, self.z, z, self.prof_pvalue) for z in fields_hdl.z.values]
+        self.t_prof=[utils.temp_prof(self.t0, self.z, p, z, self.t_lapse) for z,p in zip(fields_hdl.z.values, self.p_prof)]
 
 def obv_examiner(obv_df):
     """ Examine the input observational data """
