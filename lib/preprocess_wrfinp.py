@@ -61,8 +61,8 @@ class wrf_mesh:
     def __init__(self, config):
         """ construct input wrf file names """
         
-        print(print_prefix+'Init wrf_mesh obj...')
-        print(print_prefix+'Read template file...')
+        utils.write_log(print_prefix+'Init wrf_mesh obj...')
+        utils.write_log(print_prefix+'Read template file...')
         wrf_hdl=nc4.Dataset('./db/'+config['INPUT']['input_wrf'])
         # collect global attr
         self.dx=wrf_hdl.DX
@@ -79,7 +79,6 @@ class wrf_mesh:
         self.V10 = wrf.getvar(wrf_hdl, 'V10')
         self.T2 = wrf.getvar(wrf_hdl, 'T2')
         
-
 
         self.abz3d=wrf.getvar(wrf_hdl,'z') # model layer elevation above sea level
         self.dnw=wrf.getvar(wrf_hdl,'DNW') # d_eta value on model layer

@@ -58,11 +58,12 @@ class obv:
     
     def __init__(self, df_row, wind_prof_df, cfg, fields_hdl):
         """ construct obv obj """
+        single_obv_examiner(df_row)
+        
         (self.idx, self.lat, self.lon, self.z) = (df_row.Index, df_row.lat, df_row.lon, df_row.height)
         
         self.sta_name=df_row.attr1
         self.t=datetime.datetime.strptime(str(df_row.yyyymmddhhMM),'%Y%m%d%H%M')
-        
         (self.u0, self.v0)=utils.wswd2uv(df_row.wind_speed, df_row.wind_dir)
         self.t0=df_row.temp
         
@@ -105,7 +106,29 @@ class obv:
         self.v_prof=[utils.wind_prof(self.v0, self.z, z, self.prof_pvalue) for z in fields_hdl.z.values]
         self.t_prof=[utils.temp_prof(self.t0, self.z, p, z, self.t_lapse) for z,p in zip(fields_hdl.z.values, self.p_prof)]
 
-def obv_examiner(obv_df):
+
+
+def single_obv_examiner(df_row):
+    """ Examine single observational record """
+    row_footprint='Parsing error in record:: yyyymmddhhMM: '+str(df_row.yyyymmddhhMM)+' lat: '+str(df_row.lat)+' lon: '+str(df_row.lon)
+    row_footprint=row_footprint+' height: '+str(df_row.height)
+    
+    # test lat lon range
+    if df_row.lat>90.0 or df_row.lat<-90 or df_row.lon>360 or df_row.lon<0 or df_row.height<-1000 or df_row.height>20000:
+        utils.write_log(print_prefix+row_footprint, lvl=40)
+        utils.throw_error(print_prefix, 'invalid lat, lon, or height range!')
+
+    # test wind speed range
+    if df_row.wind_speed>40.0 or df_row.wind_speed<0:
+        utils.write_log(print_prefix+row_footprint, lvl=40)
+        utils.throw_error(print_prefix, 'weird wind speed detected! wind_speed='+str(df_row.wind_speed))
+
+    # test temp range
+    if df_row.temp>70.0 or df_row.temp<-50:
+        utils.write_log(print_prefix+row_footprint, lvl=40)
+        utils.throw_error(print_prefix, 'weird temperature detected! temp='+str(df_row.temp))
+
+def obv_examiner(obv_df, cfg):
     """ Examine the input observational data """
     # test the input length
     if len(obv_df)< 3:
@@ -118,6 +141,26 @@ def obv_examiner(obv_df):
         utils.throw_error(print_prefix, 'Missing value is not allowed through "yyyymmddhhMM":"temp_2m"!\n'+
                 'please check in the above obv table!')
 
+    interp_strt_t=datetime.datetime.strptime(cfg['CORE']['interp_strt_t'],'%Y%m%d%H%M')
+    interp_end_t=interp_strt_t+datetime.timedelta(hours=int(cfg['CORE']['interp_t_length']))
+    
+    obv_tlist_int=obv_df.yyyymmddhhMM.values
+    obv_tlist=[datetime.datetime.strptime(str(itm),'%Y%m%d%H%M') for itm in obv_tlist_int]
+    
+    # delta time between obv times to interp strt time in min
+    delta_strt_lst=[abs((interp_strt_t-tfrm).total_seconds())/60.0 for tfrm in obv_tlist]
+    # delta time between obv times to interp end time in min
+    delta_end_lst=[abs((interp_end_t-tfrm).total_seconds())/60.0 for tfrm in obv_tlist]
+
+    if min(delta_strt_lst)>1440 or min(delta_end_lst)>1440:
+        utils.write_log(print_prefix+'Invalid time overlap between obv input and config file! See below:',lvl=40)
+        utils.write_log(print_prefix+'config start:'+interp_strt_t.strftime('%Y-%m-%d_%H:%M')+', config end:'+interp_end_t.strftime('%Y-%m-%d_%H:%M')+'; obv start:'+obv_tlist[0].strftime('%Y-%m-%d %H:%M')+', obv end:'+obv_tlist[-1].strftime('%Y-%m-%d %H:%M'),lvl=40)
+        utils.throw_error(print_prefix,'Minimum delta time between obv timelist and config > 24 hr, please check input data')
+  
+    if min(delta_strt_lst)>180 or min(delta_end_lst)>180:
+        utils.write_log(print_prefix+'Minimum delta time between obv timelist and interpolating time > 180 min ',lvl=30)
+
+
 def set_upper_wind(fields_hdl, obv_lst):
     """ Set geostrophic and Ekman layer wind according to sounding in observation data, if any. """
     
@@ -126,13 +169,18 @@ def set_upper_wind(fields_hdl, obv_lst):
     pbl_top=fields_hdl.pbl_top
     idz1=fields_hdl.near_surf_z_idx
     idz2=fields_hdl.geo_z_idx
-    x_org=[zlays[idz1], zlays[idz2]]
     
+    # x_org for interpolation
+    x_org=[zlays[idz1], zlays[idz2]]
+    umean,vmean=fields_hdl.U.mean(axis=(1,2)), fields_hdl.V.mean(axis=(1,2))
+    geo_u, geo_v=umean[idz2], vmean.values[idz2]
+
     geo_u_arr=np.array([obv.u0 for obv in obv_lst if obv.z >=pbl_top])
     geo_v_arr=np.array([obv.v0 for obv in obv_lst if obv.z >=pbl_top])
 
-    geo_u, geo_v=geo_u_arr.mean(), geo_v_arr.mean()
-
+    if len(geo_u_arr)>0:
+        geo_u, geo_v=geo_u_arr.mean(), geo_v_arr.mean()
+    
     for obv in obv_lst:
         if obv.z<=pbl_top:
             # Ekman layer, interpolate to geostrophic wind

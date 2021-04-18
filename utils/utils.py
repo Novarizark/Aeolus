@@ -11,18 +11,30 @@
 
 """
 import numpy as np
+import logging
 
 DEG2RAD=np.pi/180.0
 
 def throw_error(source, msg):
-    """ Throw error with call source and error message"""
-    print('\n--------------AEOLUOS RUNTIME ERROR!!!-------------\n')
-    print('Error catched with message below:')
-    print(source+msg)
-    print('Aeolus exits abnormally!')
-    print('\n-------------AEOLUOS ABNORMAL ABORTION-------------')
+    '''
+    throw error and exit
+    '''
+    logging.error(source+msg)
     exit()
 
+def write_log(msg, lvl=20):
+    '''
+    write logging log to log file
+    level code:
+        CRITICAL    50
+        ERROR   40
+        WARNING 30
+        INFO    20
+        DEBUG   10
+        NOTSET  0
+    '''
+
+    logging.log(lvl, msg)
 
 def wswd2uv(ws, wd):
     """ convert wind component to UV """
@@ -47,12 +59,12 @@ def wswd2uv(ws, wd):
     
     
     if wd_error:
-        throw_error('utils.wswd2uv>>','Invalid wind direction input!\n'
+        throw_error('utils.wswd2uv>>','Invalid wind direction input! '
                 +'with record: wind_dir='+wd)
 
     u=-np.sin(wd_rad)*ws
     v=-np.cos(wd_rad)*ws
-
+    
     return (u,v)
 
 def wind_speed(u, v):

@@ -3,7 +3,7 @@
 
 import datetime
 import copy
-
+from utils import utils
 print_prefix='lib.clock>>'
 
 def clock_cfg_parser(cfg):
@@ -61,7 +61,7 @@ class model_clock:
         self.dt=cfg['dt']
         self.effect_win=cfg['effect_win'] 
         self.done=False
-        print(print_prefix+'Model clock '+str(idx)+' initiated at '+self.curr_time.strftime("%Y-%m-%d %H:%M:%S"))    
+        utils.write_log(print_prefix+'Model clock '+str(idx)+' initiated at '+self.curr_time.strftime("%Y-%m-%d %H:%M:%S"))    
 
 
     def advance(self):
@@ -69,7 +69,7 @@ class model_clock:
         self.curr_time=self.curr_time+self.dt
         
         if self.curr_time <= self.end_time:
-            print(print_prefix+"Model clock "+str(self.idx)+" advanced to "+self.curr_time.strftime('%Y-%m-%d %H:%M:%S'))
+            utils.write_log(print_prefix+"Model clock "+str(self.idx)+" advanced to "+self.curr_time.strftime('%Y-%m-%d %H:%M:%S'))
         else:
-            print(print_prefix+"Model clock "+str(self.idx)+" finished!")
+            utils.write_log(print_prefix+"Model clock "+str(self.idx)+" finished!")
             self.done=True

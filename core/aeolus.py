@@ -68,7 +68,7 @@ class aeolus:
         # convective propagation distance
         conv_t=fields_hdl.conv_t
         
-        print(print_prefix+'Interpolate UV...')
+        utils.write_log(print_prefix+'Interpolate UV...')
         cast_lst=select_obv(obv_lst, clock)
         n_obv=len(cast_lst)
        
@@ -134,16 +134,16 @@ class aeolus:
             t_prof_near=np.take_along_axis(t_prof_mtx[:,:,:,idz], tsort_idx, axis=-1)[:,:,0:3]
             self.T.values[idz,:,:]=inv_dis_wgt_2d(t_prof_near, dis_mtx_t_near)
 
-        print(print_prefix+'First-guess W...')
+        utils.write_log(print_prefix+'First-guess W...')
         self.W.values,self.zx,self.zy=diag_vert_vel(self, fields_hdl)
         
-        print(print_prefix+"Adjust results by mass conservation...")
+        utils.write_log(print_prefix+"Adjust results by mass conservation...")
         solve_nz=fields_hdl.solve_nz # try 3 layer scale at first
         while solve_nz > 0:
             solve_nz=self.adjust_mass(fields_hdl, solve_nz)
 
         if solve_nz <0:
-            print('simple adjust...')
+            utils.write_log('simple adjust...')
             self.simple_terrain_adjust(fields_hdl)
         
         # cast 10-m uv 
@@ -292,7 +292,7 @@ class aeolus:
         
         # print filling ratio
         fill_r=100*A.getnnz()/(bsize*bsize)
-        print(print_prefix+'A matrix filling ratio:%7.6f%%' % fill_r)
+        utils.write_log(print_prefix+'A matrix filling ratio:%7.6f%%' % fill_r)
         A=A.tocsr()
 
         # let's solve 
@@ -319,14 +319,14 @@ class aeolus:
         scal_u0,scal_v0,scal_w0=np.max(abs(U0),axis=(1,2)),np.max(abs(V0),axis=(1,2)),np.max(abs(W0),axis=(1,2))
         scal_du,scal_dv,scal_dw=np.max(abs(du),axis=(1,2)),np.max(abs(dv),axis=(1,2)),np.max(abs(dw),axis=(1,2))
         
-        print(print_prefix+'deltaU vector:')
-        print(scal_du)
+        utils.write_log(print_prefix+'deltaU vector:',lvl=10)
+        utils.write_log(scal_du, lvl=10)
         
         if scal_du.mean()>5.0: # unreal solution
-            print(print_prefix+'Solving linear system with '+str(n_z)+' vertical layers failed, try another time.')
+            utils.write_log(print_prefix+'Solving linear system with '+str(n_z)+' vertical layers failed, try another time.')
             return n_z+1
             
-        print(print_prefix+'Solving linear system with '+str(n_z)+' vertical layers successful!')
+        utils.write_log(print_prefix+'Solving linear system with '+str(n_z)+' vertical layers successful!')
         U0[:,:,1:],V0[:,1:,:]=U0[:,:,1:]+scal_f*du,V0[:,1:,:]+scal_f*dv
         U0[:,:,0],V0[:,0,:]=U0[:,:,1],V0[:,0,:]
         W0=W0+dw
@@ -425,7 +425,7 @@ def inv_dis_wgt_2d(ws_lst, dis_mtx):
 
 def output_fields(cfg, aeolus, clock):
     """ Output diagnostic fields into WRF template file """
-    print(print_prefix+'Output...')
+    utils.write_log(print_prefix+'Output...')
     
     init_timestamp=clock.init_time.strftime('%Y-%m-%d_%H:%M:%S')
     curr_time=clock.curr_time

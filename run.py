@@ -21,48 +21,61 @@ Mar 30, 2021 --- MVP v0.90
 Apr 02, 2021
     --- Takes in sounding data
     --- Vertical convection time scale adjustment
+Apr 21, 2021
+    --- Finilize mass adjustment
+    --- logging with robustness check
 
 Zhenning LI
 '''
 
 import numpy as np
 import pandas as pd
-import os
+import os, logging
 
 import lib 
 import core
+from utils import utils
 from multiprocessing import Pool, sharedctypes
 
 def main_run():
     
     print('*************************AEOLUS START*************************')
-   
+       
     # wall-clock ticks
     time_mgr=lib.time_manager.time_manager()
-
-    print('Read Config...')
+    
+    # error manager
+    logging.config.fileConfig('./conf/logging_config.ini')
+    
+    
+    utils.write_log('Read Config...')
     cfg_basic_hdl=lib.cfgparser.read_cfg('./conf/config.basic.ini')
+    lib.cfgparser.cfg_valid_test(cfg_basic_hdl)
     cfg_hdl=lib.cfgparser.read_cfg('./conf/config.ini')
-    cfg_hdl=lib.cfgparser.merge_cfg(cfg_basic_hdl, cfg_hdl)
-    cfg_hdl['CORE']['ntasks']='1'
 
-    print('Read Input Observations...')
+    cfg_hdl=lib.cfgparser.merge_cfg(cfg_basic_hdl, cfg_hdl)
+    
+
+    # lock the tasks Apr 1 2021
+    #cfg_hdl['CORE']['ntasks']='1'
+
+    utils.write_log('Read Input Observations...')
     obv_df=pd.read_csv(cfg_hdl['INPUT']['input_root']+cfg_hdl['INPUT']['input_obv'],header=0,
             names=['yyyymmddhhMM','lat','lon','height','wind_speed','wind_dir','temp','rh','pres','attr1','attr2'])
     # make sure the list is sorted by datetime and long enough
     obv_df=obv_df.sort_values(by='yyyymmddhhMM') 
     
-    print('Input Quality Control...')
-    lib.obv_constructor.obv_examiner(obv_df)
+    utils.write_log('Input Quality Control...')
+    lib.obv_constructor.obv_examiner(obv_df, cfg_hdl)
     
-    print('Read Wind Profile Exponents...')
+    utils.write_log('Read Wind Profile Exponents...')
     wind_prof_df=pd.read_csv('./db/power_coef_wind.csv')
     time_mgr.toc('INPUT MODULE')
 
-    print('Construct WRFOUT Handler...')
+    utils.write_log('Construct WRFOUT Handler...')
     fields_hdl=lib.preprocess_wrfinp.wrf_mesh(cfg_hdl)
     
-    print('Construct Observation Satation Objs...')
+    utils.write_log('Construct Observation Satation Objs...')
     obv_lst=[] 
     for row in obv_df.itertuples():
         obv_lst.append(lib.obv_constructor.obv(row, wind_prof_df, cfg_hdl, fields_hdl))
@@ -72,7 +85,7 @@ def main_run():
     # setup Ekman layer and geostrophic wind in obv wind profile
     lib.obv_constructor.set_upper_wind(fields_hdl, obv_lst)
 
-    print('Construct Model Clocks and Interpolating Estimators.....')
+    utils.write_log('Construct Model Clocks and Interpolating Estimators.....')
     clock_cfg=lib.model_clock.clock_cfg_parser(cfg_hdl)
     ntasks=clock_cfg['nclock']
     clock_lst=[]
@@ -85,7 +98,7 @@ def main_run():
     time_mgr.toc('CONSTRUCTION MODULE')
 
     if ntasks == 1:
-        print('Aeolus Interpolating Estimator Casting...')
+        utils.write_log('Aeolus Interpolating Estimator Casting...')
         clock=clock_lst[0]
         estimator=estimator_lst[0]
         while not(clock.done):
@@ -93,13 +106,13 @@ def main_run():
             estimator.cast(obv_lst, fields_hdl, clock)
             time_mgr.toc('CAST MODULE')
 
-            print('Output Diagnostic UVW Fields...')
+            utils.write_log('Output Diagnostic UVW Fields...')
             core.aeolus.output_fields(cfg_hdl, estimator, clock)
             time_mgr.toc('OUTPUT MODULE')
             
             clock.advance()
     else:
-        print('Multiprocessing initiated. Master process %s.' % os.getpid())
+        utils.write_log('Multiprocessing initiated. Master process %s.' % os.getpid())
         # let's do the multiprocessing magic!
         # start process pool
         results=[]
@@ -122,16 +135,16 @@ def run_mtsk(itsk, obv_lst, clock, estimator, fields_hdl, cfg_hdl):
     """
     Aeolus cast function for multiple processors
     """
-    print('TASK[%02d]: Aeolus Interpolating Estimator Casting...' % itsk)
+    utils.write_log('TASK[%02d]: Aeolus Interpolating Estimator Casting...' % itsk)
     while not(clock.done):
            
         estimator.cast(obv_lst, fields_hdl, clock)
 
-        print('TASK[%02d]: Output Diagnostic UVW Fields...' % itsk )
+        utils.write_log('TASK[%02d]: Output Diagnostic UVW Fields...' % itsk )
         core.aeolus.output_fields(cfg_hdl, estimator, clock)
         
         clock.advance()
-    print('TASK[%02d]: Aeolus Subprocessing Finished!' % itsk)
+    utils.write_log('TASK[%02d]: Aeolus Subprocessing Finished!' % itsk)
     
     return 0
 
