@@ -44,7 +44,7 @@ def main_run():
     # wall-clock ticks
     time_mgr=lib.time_manager.time_manager()
     
-    # error manager
+    # logging manager
     logging.config.fileConfig('./conf/logging_config.ini')
     
     
@@ -57,14 +57,13 @@ def main_run():
     
 
     # lock the tasks Apr 1 2021
-    #cfg_hdl['CORE']['ntasks']='1'
+    cfg_hdl['CORE']['ntasks']='1'
 
     utils.write_log('Read Input Observations...')
     obv_df=pd.read_csv(cfg_hdl['INPUT']['input_root']+cfg_hdl['INPUT']['input_obv'],header=0,
             names=['yyyymmddhhMM','lat','lon','height','wind_speed','wind_dir','temp','rh','pres','attr1','attr2'])
     # make sure the list is sorted by datetime and long enough
     obv_df=obv_df.sort_values(by='yyyymmddhhMM') 
-    
     utils.write_log('Input Quality Control...')
     lib.obv_constructor.obv_examiner(obv_df, cfg_hdl)
     

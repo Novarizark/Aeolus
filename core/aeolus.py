@@ -70,8 +70,18 @@ class aeolus:
         
         utils.write_log(print_prefix+'Interpolate UV...')
         cast_lst=select_obv(obv_lst, clock)
+        
+        #for itm in cast_lst:
+        #    print(itm.__dict__)
+        
         n_obv=len(cast_lst)
-       
+        
+        # take nearest stations when selected 20 or more stations
+        if n_obv > 20:
+            n_sel=3
+        else:
+            n_sel=n_obv
+
         n_sn, n_we = fields_hdl.n_sn, fields_hdl.n_we
         nz = fields_hdl.z.shape[0]
         # construct distance matrix on staggered u grid
@@ -116,24 +126,23 @@ class aeolus:
             dis_mtx_v=(self.dis_mtx_v+conv_t*zdis_vmtx)*np.exp(zdis_vmtx*efold_r)
             dis_mtx_t=(self.dis_mtx_t+conv_t*zdis_tmtx)*np.exp(zdis_tmtx*efold_r)
             
-            #print(dis_mtx[50,50,:])
             # sort_idx (n_sn, n_we, n_obv)
             usort_idx, vsort_idx, tsort_idx=np.argsort(dis_mtx_u), np.argsort(dis_mtx_v), np.argsort(dis_mtx_t)
 
             # sorted distance matrix and take the nearest 3 to construct the calculating matrix
-            dis_mtx_u_near=np.take_along_axis(dis_mtx_u, usort_idx, axis=-1)[:,:,0:3]
-            dis_mtx_v_near=np.take_along_axis(dis_mtx_v, vsort_idx, axis=-1)[:,:,0:3]
-            dis_mtx_t_near=np.take_along_axis(dis_mtx_t, tsort_idx, axis=-1)[:,:,0:3]
+            dis_mtx_u_near=np.take_along_axis(dis_mtx_u, usort_idx, axis=-1)[:,:,0:n_sel]
+            dis_mtx_v_near=np.take_along_axis(dis_mtx_v, vsort_idx, axis=-1)[:,:,0:n_sel]
+            dis_mtx_t_near=np.take_along_axis(dis_mtx_t, tsort_idx, axis=-1)[:,:,0:n_sel]
 
-            u_prof_near=np.take_along_axis(u_prof_mtx[:,:,:,idz], usort_idx, axis=-1)[:,:,0:3]
+            u_prof_near=np.take_along_axis(u_prof_mtx[:,:,:,idz], usort_idx, axis=-1)[:,:,0:n_sel]
             self.U.values[idz,:,:]=inv_dis_wgt_2d(u_prof_near,dis_mtx_u_near)
-              
-            v_prof_near=np.take_along_axis(v_prof_mtx[:,:,:,idz], vsort_idx, axis=-1)[:,:,0:3]
+            v_prof_near=np.take_along_axis(v_prof_mtx[:,:,:,idz], vsort_idx, axis=-1)[:,:,0:n_sel]
             self.V.values[idz,:,:]=inv_dis_wgt_2d(v_prof_near, dis_mtx_v_near)
             
-            t_prof_near=np.take_along_axis(t_prof_mtx[:,:,:,idz], tsort_idx, axis=-1)[:,:,0:3]
+            t_prof_near=np.take_along_axis(t_prof_mtx[:,:,:,idz], tsort_idx, axis=-1)[:,:,0:n_sel]
             self.T.values[idz,:,:]=inv_dis_wgt_2d(t_prof_near, dis_mtx_t_near)
 
+        
         utils.write_log(print_prefix+'First-guess W...')
         self.W.values,self.zx,self.zy=diag_vert_vel(self, fields_hdl)
         
@@ -395,8 +404,10 @@ def select_obv(obv_lster,clock_obj):
     valid_lster=[]
     clock=clock_obj.curr_time
     effect_win=clock_obj.effect_win*60 # shift to seconds
+    
     # get the absolute delta time between each obv and current clock
     dt_lst=[abs((obv.t-clock).total_seconds()) for obv in obv_lster]
+    
     # sort the dt_lst and return the index of sorted list from min to max
     dt_rank=sorted(range(len(dt_lst)), key=lambda k: dt_lst[k])
     
@@ -404,6 +415,7 @@ def select_obv(obv_lster,clock_obj):
         if dt_lst[idx]<effect_win:
             valid_lster.append(obv_lster[idx])
     len_valid=len(valid_lster)
+    
     # make sure at least 3 stations will be selected
     if len_valid < 3:
         for i in dt_rank[len_valid:3]:

@@ -145,8 +145,11 @@ def obv_examiner(obv_df, cfg):
     interp_end_t=interp_strt_t+datetime.timedelta(hours=int(cfg['CORE']['interp_t_length']))
     
     obv_tlist_int=obv_df.yyyymmddhhMM.values
-    obv_tlist=[datetime.datetime.strptime(str(itm),'%Y%m%d%H%M') for itm in obv_tlist_int]
-    
+    try:
+        obv_tlist=[datetime.datetime.strptime(str(itm),'%Y%m%d%H%M') for itm in obv_tlist_int]
+    except:
+        utils.throw_error(print_prefix, 'datetime formate error, please use "%Y%m%d%H%M"')
+
     # delta time between obv times to interp strt time in min
     delta_strt_lst=[abs((interp_strt_t-tfrm).total_seconds())/60.0 for tfrm in obv_tlist]
     # delta time between obv times to interp end time in min
@@ -173,7 +176,7 @@ def set_upper_wind(fields_hdl, obv_lst):
     # x_org for interpolation
     x_org=[zlays[idz1], zlays[idz2]]
     umean,vmean=fields_hdl.U.mean(axis=(1,2)), fields_hdl.V.mean(axis=(1,2))
-    geo_u, geo_v=umean[idz2], vmean.values[idz2]
+    geo_u, geo_v=umean.values[idz2], vmean.values[idz2]
 
     geo_u_arr=np.array([obv.u0 for obv in obv_lst if obv.z >=pbl_top])
     geo_v_arr=np.array([obv.v0 for obv in obv_lst if obv.z >=pbl_top])
