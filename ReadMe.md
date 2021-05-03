@@ -1,5 +1,6 @@
 
 # Aeolus 
+![](https://raw.githubusercontent.com/Novarizark/Aeolus/main/aeolus.png)
 
 Aeolus is a diagnostic model for interpolating in-situ wind observations onto geographical mesh based on `wrfout` template.
 
